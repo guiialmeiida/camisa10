@@ -14,6 +14,6 @@ onde mora a maior parte do aprendizado, porque é o que não aparece no código 
 
 | Doc | Conceito | Tarefa |
 |---|---|---|
-| [01-embeddings-e-busca-vetorial.md](01-embeddings-e-busca-vetorial.md) | O que é um embedding e por que busca vetorial não é busca por palavra | 00 |
+| [01-embeddings-and-vector-search.md](01-embeddings-and-vector-search.md) | O que é um embedding e por que busca vetorial não é busca por palavra | 00 |
 
 _(cresce conforme as tarefas andam)_

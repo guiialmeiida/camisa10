@@ -16,12 +16,12 @@ Arquitetura, tabela de modelos por etapa e o registro das decisões: `docs/archi
 - O setup inicial (package.json, estrutura de pastas, config de ambiente, teste de fumaça) já
   está pronto. **Não reimplemente isso.**
 - **Implementar ensinando.** O objetivo do usuário é aprender RAG, não receber código pronto.
-  Explique o conceito antes/junto do código, e registre-o em `docs/aprendizado/` (um doc por
+  Explique o conceito antes/junto do código, e registre-o em `docs/learning/` (um doc por
   peça, terminando com "Por que não X?"). Clareza didática vale mais que esperteza.
 - O trabalho está quebrado em tarefas em `docs/tasks/`, nesta ordem:
-  `00-fatia-vertical.md` → `01-fontes-de-dados.md` → `02-pipeline-ingestao.md` →
-  `03-indice-vetorial.md` → `04-consulta-rodada-atual.md` e `05-consulta-forma-time.md` (essas
-  duas em paralelo) → `06-loops-de-feedback.md`.
+  `00-vertical-slice.md` → `01-data-sources.md` → `02-ingestion-pipeline.md` →
+  `03-vector-index.md` → `04-current-matchweek-query.md` e `05-team-form-query.md` (essas
+  duas em paralelo) → `06-feedback-loops.md`.
 - Cada tarefa segue o modelo em `docs/tasks/TASK_TEMPLATE.md`: discovery → refinamento técnico →
   implementação → revisão → testes. Uma etapa por vez, registrando o resultado no próprio arquivo
   da tarefa. Não pule etapas.
@@ -88,8 +88,12 @@ Mensagem de commit, título de PR e descrição de PR são **em inglês** e segu
 - **Em inglês**: nomes de função, método, variável, classe, arquivo e diretório; campos de
   schema e chaves de JSON; nomes de teste (`describe`/`it`); mensagens de erro e de log;
   comentários no código.
-- **Em português**: specs em `docs/tasks/`, docs em `docs/aprendizado/`, `README.md`,
-  `architecture.md`, e a conversa com o usuário.
+- **Em português**: o *conteúdo* das specs em `docs/tasks/`, dos docs em `docs/learning/`, do
+  `README.md` e do `architecture.md`, e a conversa com o usuário.
+
+**Atenção:** nome de arquivo e de diretório é identificador, então é inglês **mesmo quando o
+conteúdo é português** — `docs/tasks/00-vertical-slice.md` contém prosa em português e tem nome
+em inglês. Nome de branch segue a mesma regra.
 
 Um schema é código: `{ homeTeam, awayTeam, score }`, não `{ time_casa, time_fora, placar }`.
 Termos de domínio traduzem — `trecho` → `passage`, `rodada` → `matchweek`, `fatos` → `facts`,
@@ -116,5 +120,5 @@ em vez de decidir de novo a cada arquivo.
   etapa, para serem trocados e medidos.
 
 ## Próximo passo sugerido
-Abrir `docs/tasks/00-fatia-vertical.md`. O discovery dela já está fechado; a próxima etapa é o
+Abrir `docs/tasks/00-vertical-slice.md`. O discovery dela já está fechado; a próxima etapa é o
 refinamento técnico — que tem três perguntas em aberto no arquivo, para o usuário decidir antes.

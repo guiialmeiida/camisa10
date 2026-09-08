@@ -49,7 +49,7 @@ Se o número do PR não vier no seu prompt, `gh pr view` na branch atual o encon
 5. **Configuração.** Variável de ambiente nova está no `env.js` **e** no `.env.example`? ID de
    modelo bate com `docs/architecture.md`, sem sufixo de data?
 6. **Simplicidade.** Abstração sem uso, indireção desnecessária, dependência nova que não
-   precisava existir, comentário didático que deveria estar em `docs/aprendizado/`. Este é um
+   precisava existir, comentário didático que deveria estar em `docs/learning/`. Este é um
    projeto de aprendizado: complexidade a mais custa entendimento, e isso é um defeito real.
 
 ## Formato do relatório

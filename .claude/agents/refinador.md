@@ -21,7 +21,7 @@ arquivos — leia-os antes de escrever uma linha, e não presuma o que foi conve
    usuário. Elas não estão em negociação.
 3. As tarefas das quais ela depende, e o código já existente das peças vizinhas. A spec precisa
    encaixar no que existe, não no que seria bonito do zero.
-4. `docs/aprendizado/` — o conceito que a tarefa materializa, quando houver.
+4. `docs/learning/` — o conceito que a tarefa materializa, quando houver.
 
 ## O que a spec precisa ter
 

@@ -137,7 +137,7 @@ testes.
   as decisões são dele, e um subagente só adivinharia defaults.
 - **Refinamento → aprovação do usuário → implementação → revisão** usa os agentes definidos em
   `.claude/agents/`. A aprovação da spec é o ponto de parada do loop de entrega.
-- Cada peça ganha um doc de conceito em `docs/aprendizado/` explicando o *porquê*, não só o quê.
+- Cada peça ganha um doc de conceito em `docs/learning/` explicando o *porquê*, não só o quê.
 
 ## Status
 
@@ -152,7 +152,7 @@ Fechadas em 2026-09-08, por grilling:
 | 1 | Arquitetura multi-agente (não um router, nem um agente único com tools) |
 | 2 | Dois loops de feedback: grading de documentos + self-check da resposta |
 | 3 | "Loops de entrega" são de **processo**: cada tarefa entrega algo rodável |
-| 4 | Ensino em `docs/aprendizado/` + explicação na conversa (não em comentários no código) |
+| 4 | Ensino em `docs/learning/` + explicação na conversa (não em comentários no código) |
 | 5 | Porta de entrada: CLI imprimindo o traço do agente |
 | 6 | Agentes nos dois planos: runtime (respondem) e dev-time (constroem o projeto) |
 | 7 | Tetos: 2 reescritas no grading, 1 no self-check; sempre responder |

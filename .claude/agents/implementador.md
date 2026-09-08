@@ -43,7 +43,7 @@ vizinhas — o estilo do que já existe manda mais que a sua preferência.
   chamadas ao `@anthropic-ai/sdk` (thinking, effort, streaming, tratamento de erro) em vez de
   escrever de memória.
 - Escreva o código como o código em volta: mesma densidade de comentário, mesmos nomes, mesmos
-  idiomas. **A explicação didática mora em `docs/aprendizado/`, não em comentário** — comentário
+  idiomas. **A explicação didática mora em `docs/learning/`, não em comentário** — comentário
   didático apodrece junto com o código.
 
 ## Antes de dizer que terminou

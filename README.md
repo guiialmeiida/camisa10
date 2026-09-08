@@ -5,7 +5,7 @@ vetorial único, consultado por um agente multi-etapa que atende dois modos de p
 "rodada atual" e "forma do time" (com decaimento temporal).
 
 Arquitetura completa e decisões de design em [`docs/architecture.md`](docs/architecture.md).
-Os conceitos de RAG por trás de cada peça em [`docs/aprendizado/`](docs/aprendizado/).
+Os conceitos de RAG por trás de cada peça em [`docs/learning/`](docs/learning/).
 
 ## Setup
 
@@ -40,13 +40,13 @@ invisível. Por isso a ordem começa por uma fatia vertical, e não pela base:
 
 | | Tarefa | O que muda |
 |---|---|---|
-| 00 | `00-fatia-vertical.md` | o caminho inteiro do RAG com dados de mentira: fixture, embedding real, Qdrant, agente, CLI |
-| 01 | `01-fontes-de-dados.md` | troca o fixture pela API de verdade |
-| 02 | `02-pipeline-ingestao.md` | dedup, tags, cadência |
-| 03 | `03-indice-vetorial.md` | chunking e schema de metadados definitivos |
-| 04 | `04-consulta-rodada-atual.md` | modo de consulta (paralela com a 05) |
-| 05 | `05-consulta-forma-time.md` | modo de consulta (paralela com a 04) |
-| 06 | `06-loops-de-feedback.md` | grader de documentos + crítico da resposta |
+| 00 | `00-vertical-slice.md` | o caminho inteiro do RAG com dados de mentira: fixture, embedding real, Qdrant, agente, CLI |
+| 01 | `01-data-sources.md` | troca o fixture pela API de verdade |
+| 02 | `02-ingestion-pipeline.md` | dedup, tags, cadência |
+| 03 | `03-vector-index.md` | chunking e schema de metadados definitivos |
+| 04 | `04-current-matchweek-query.md` | modo de consulta (paralela com a 05) |
+| 05 | `05-team-form-query.md` | modo de consulta (paralela com a 04) |
+| 06 | `06-feedback-loops.md` | grader de documentos + crítico da resposta |
 
 Cada tarefa passa por 5 etapas: discovery → refinamento técnico → implementação → revisão →
 testes. Ver o modelo em `docs/tasks/TASK_TEMPLATE.md`.

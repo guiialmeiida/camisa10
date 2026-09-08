@@ -472,7 +472,7 @@ export function getClient(): QdrantClient;
 /**
  * Cria a coleção se não existir. `recreate: true` apaga e recria (usado pelo npm run index).
  * Dimensão EMBEDDING.dimensions (1536), distância "Cosine".
- * Ver docs/aprendizado/01: a dimensão é permanente.
+ * Ver docs/learning/01: a dimensão é permanente.
  */
 export async function ensureCollection(options?: EnsureCollectionOptions): Promise<void>;
 
@@ -499,7 +499,7 @@ Erros: se a coleção não existe, `search` lança
 `Error("collection 'camisa10' does not exist — run: npm run index")`. Se o Qdrant não responde,
 o erro do cliente sobe com a URL na mensagem. Nunca devolver `[]` silenciosamente nesses casos —
 busca vetorial que devolve vazio por erro de infra é indistinguível de "não achei", e o
-`docs/aprendizado/01` já avisa que ela nunca diz "não sei".
+`docs/learning/01` já avisa que ela nunca diz "não sei".
 
 #### Exemplo de point **nesta tarefa**
 
@@ -552,7 +552,7 @@ runtime necessária, e não redundante com o typecheck.
 
 Ambos usam `EMBEDDING.model` de `src/config/models.ts` — **a mesma constante nos dois lados**,
 ingestão e pergunta, porque modelos diferentes produzem espaços diferentes e o Qdrant não
-reclama (ver `docs/aprendizado/01`).
+reclama (ver `docs/learning/01`).
 
 `src/ingestion/indexer.ts`:
 
@@ -998,7 +998,7 @@ export async function measureRecall(options?: { k?: number | undefined }): Promi
 ~15 perguntas, cobrindo: cada nickname do fixture (alviverde, raposa, tricolor de aço, timão),
 cada assunto (lesão, escalação, fase, crônica), o jogo que ainda não aconteceu, e pelo menos uma
 pergunta sobre um time **fora** do fixture (`expectedPassages: []` — o caso em que a busca
-devolve `k` passages com score respeitável sobre outra coisa; ver `docs/aprendizado/01`).
+devolve `k` passages com score respeitável sobre outra coisa; ver `docs/learning/01`).
 
 **Como o recall é calculado.** Para cada pergunta, `searchContext({ query: question, k })` — a
 pergunta crua, **sem passar pelo planner**, para medir o retrieval e não o LLM. Então:
