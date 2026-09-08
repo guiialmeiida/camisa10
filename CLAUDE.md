@@ -55,6 +55,22 @@ As tarefas 04 e 05 são independentes e é onde vale rodar agentes em paralelo.
 
 ## Convenções
 
+### Git: branch e PR por tarefa
+Cada tarefa de `docs/tasks/` vive numa branch própria e vira um PR. Nada vai direto para a `main`.
+
+- **Branch**: `feat/NN-short-name` em inglês, derivada da tarefa — `feat/00-vertical-slice`,
+  `feat/01-data-sources`. Correção fora de tarefa usa `fix/short-name`.
+- **Vários commits por tarefa**, cada um coeso. Não amontoe a tarefa inteira num commit só.
+- **O PR abre quando a implementação está pronta** — não no fim da revisão. Título no mesmo
+  formato Conventional Commits do commit; descrição em inglês, ligando à tarefa
+  (`docs/tasks/NN-....md`) e dizendo o que mudou e como verificar.
+- **O `revisor` roda depois do PR aberto e comenta dentro dele.** A revisão acontece à vista, no
+  diff, e não numa mensagem que se perde na conversa. Ele comenta; **não aprova nem pede
+  mudanças** — o veredito é do usuário.
+- **Correções vêm como novos commits na mesma branch**, nunca como `--amend` em commit já
+  publicado: force-push num PR aberto apaga o contexto dos comentários existentes.
+- **Merge só com o `npm test` verde e com o usuário aprovando.**
+
 ### Git: Conventional Commits, em inglês
 Mensagem de commit, título de PR e descrição de PR são **em inglês** e seguem
 [Conventional Commits](https://www.conventionalcommits.org/): `<type>(<scope>): <subject>`.
