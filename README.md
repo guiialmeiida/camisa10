@@ -1,0 +1,56 @@
+# Futebol RAG — rodada atual + forma do time
+
+Projeto de aprendizado de RAG (Retrieval-Augmented Generation) aplicado a futebol: um índice
+vetorial único, consultado por um agente multi-etapa que atende dois modos de pergunta —
+"rodada atual" e "forma do time" (com decaimento temporal).
+
+Arquitetura completa e decisões de design em [`docs/architecture.md`](docs/architecture.md).
+Os conceitos de RAG por trás de cada peça em [`docs/aprendizado/`](docs/aprendizado/).
+
+## Setup
+
+```bash
+nvm use          # Node >= 22.18: o projeto roda .ts sem build
+npm install
+cp .env.example .env
+# preencha as chaves em .env
+npm run dev
+```
+
+Rodar os testes:
+
+```bash
+npm test
+```
+
+## Estrutura
+
+- `src/sources/` — clientes das fontes de dados (API de futebol, notícias)
+- `src/ingestion/` — pipeline de ingestão (dedup, tags, embedding)
+- `src/vectorstore/` — cliente do índice vetorial
+- `src/retrieval/` — os dois modos de consulta (rodada atual, forma do time)
+- `src/generation/` — geração de resposta com citação
+
+Cada pasta tem um `README.md` curto apontando pra tarefa correspondente.
+
+## Como o trabalho está organizado
+
+Cada tarefa em `docs/tasks/` termina em **algo que roda e que dá pra usar** — não em código
+invisível. Por isso a ordem começa por uma fatia vertical, e não pela base:
+
+| | Tarefa | O que muda |
+|---|---|---|
+| 00 | `00-fatia-vertical.md` | o caminho inteiro do RAG com dados de mentira: fixture, embedding real, Qdrant, agente, CLI |
+| 01 | `01-fontes-de-dados.md` | troca o fixture pela API de verdade |
+| 02 | `02-pipeline-ingestao.md` | dedup, tags, cadência |
+| 03 | `03-indice-vetorial.md` | chunking e schema de metadados definitivos |
+| 04 | `04-consulta-rodada-atual.md` | modo de consulta (paralela com a 05) |
+| 05 | `05-consulta-forma-time.md` | modo de consulta (paralela com a 04) |
+| 06 | `06-loops-de-feedback.md` | grader de documentos + crítico da resposta |
+
+Cada tarefa passa por 5 etapas: discovery → refinamento técnico → implementação → revisão →
+testes. Ver o modelo em `docs/tasks/TASK_TEMPLATE.md`.
+
+O **discovery** é sempre uma conversa direta com o usuário (skill `grill-me`, em
+`.claude/skills/`). O refinamento, a implementação e a revisão usam os agentes definidos em
+`.claude/agents/`, com a aprovação da spec pelo usuário entre o refinamento e a implementação.

@@ -1,0 +1,19 @@
+# dependências
+node_modules/
+
+# segredos — NUNCA versionar (o repositório é público)
+.env
+.env.*
+!.env.example
+
+# build e artefatos
+dist/
+coverage/
+*.log
+*.tsbuildinfo
+
+# config local do Claude Code (pode conter caminhos e permissões da máquina)
+.claude/settings.local.json
+
+# sistema
+.DS_Store

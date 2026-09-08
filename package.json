@@ -1,0 +1,29 @@
+{
+  "name": "camisa10",
+  "version": "0.1.0",
+  "description": "RAG unificado de futebol: rodada atual e forma do time sobre o mesmo indice vetorial",
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "start": "node src/index.ts",
+    "dev": "node --watch src/index.ts",
+    "test": "tsc --noEmit && vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.124.0",
+    "@qdrant/js-client-rest": "^1.19.0",
+    "axios": "^1.20.0",
+    "dotenv": "^17.4.2",
+    "openai": "^7.10.0",
+    "zod": "^4.5.4"
+  },
+  "devDependencies": {
+    "@types/node": "^26.5.0",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.0"
+  }
+}
