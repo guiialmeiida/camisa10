@@ -86,7 +86,7 @@ describe("formatTrace", () => {
       },
       {
         node: "search_vector_context",
-        model: "text-embedding-3-small",
+        model: "voyage-3.5",
         ms: 290,
         k: 5,
         collectionSize: 14,

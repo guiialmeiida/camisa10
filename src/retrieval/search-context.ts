@@ -15,7 +15,7 @@ export interface SearchContextParams {
  * and `filter` already exists here just so they can plug in without a signature change.
  */
 export async function searchContext(params: SearchContextParams): Promise<SearchResult[]> {
-  const vector = await embed(params.query);
+  const vector = await embed(params.query, "query");
   return search({
     vector,
     ...(params.k !== undefined ? { k: params.k } : {}),

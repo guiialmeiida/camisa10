@@ -3,7 +3,7 @@ import { loadEnv } from "../src/config/env.ts";
 
 const fakeEnv = {
   API_FUTEBOL_TOKEN: "fake-token",
-  OPENAI_API_KEY: "sk-fake",
+  VOYAGE_API_KEY: "voyage-fake",
   ANTHROPIC_API_KEY: "sk-ant-fake",
   QDRANT_URL: "http://localhost:6333",
 };
@@ -30,7 +30,7 @@ describe("loadEnv", () => {
     process.env = { ...process.env };
     delete process.env.ANTHROPIC_API_KEY;
     delete process.env.API_FUTEBOL_TOKEN;
-    delete process.env.OPENAI_API_KEY;
+    delete process.env.VOYAGE_API_KEY;
     delete process.env.QDRANT_URL;
 
     expect(() => loadEnv()).toThrow();

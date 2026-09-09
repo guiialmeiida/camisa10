@@ -11,10 +11,10 @@ describe("ModelConfig", () => {
     const bad1: ModelConfig = { model: "claude-haiku-4-5", maxTokens: 512, effort: "high" };
     // @ts-expect-error a model id with a date suffix must not compile
     const bad2: ModelConfig = { model: "claude-opus-5-20260401", effort: "high", maxTokens: 10 };
-    const dims: 1536 = EMBEDDING.dimensions;
+    const dims: 1024 = EMBEDDING.dimensions;
 
     void bad1;
     void bad2;
-    expect(dims).toBe(1536);
+    expect(dims).toBe(1024);
   });
 });

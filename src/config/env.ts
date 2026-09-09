@@ -3,7 +3,7 @@ import { z } from "zod";
 const schema = z.object({
   // Optional until task 01 introduces the real football API (fixtures need no token).
   API_FUTEBOL_TOKEN: z.string().optional(),
-  OPENAI_API_KEY: z.string().min(1, "set OPENAI_API_KEY in .env"),
+  VOYAGE_API_KEY: z.string().min(1, "set VOYAGE_API_KEY in .env"),
   ANTHROPIC_API_KEY: z.string().min(1, "set ANTHROPIC_API_KEY in .env"),
   QDRANT_URL: z.url("QDRANT_URL must be a valid URL"),
   QDRANT_API_KEY: z.string().optional(),

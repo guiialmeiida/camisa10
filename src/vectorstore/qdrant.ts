@@ -44,7 +44,7 @@ function getCollectionName(): string {
 
 /**
  * Creates the collection if it doesn't exist. `recreate: true` drops and recreates it
- * (used by `npm run index`). Dimension EMBEDDING.dimensions (1536), "Cosine" distance.
+ * (used by `npm run index`). Dimension EMBEDDING.dimensions (1024), "Cosine" distance.
  * See docs/learning/01: the dimension is permanent.
  */
 export async function ensureCollection(options?: EnsureCollectionOptions): Promise<void> {

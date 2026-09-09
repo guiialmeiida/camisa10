@@ -20,7 +20,10 @@ export async function indexPassages(): Promise<IndexReport> {
   const [passages, facts] = await Promise.all([listPassages(), getFacts({})]);
   const matchweekByMatchId = new Map(facts.matches.map((match) => [match.id, match.matchweek]));
 
-  const vectors = await embedAll(passages.map((passage) => passage.text));
+  const vectors = await embedAll(
+    passages.map((passage) => passage.text),
+    "document",
+  );
 
   await ensureCollection({ recreate: true });
 

@@ -16,6 +16,6 @@ export const MODELS = {
 } as const satisfies Record<string, ModelConfig>;
 
 export const EMBEDDING = {
-  model: "text-embedding-3-small",
-  dimensions: 1536,
+  model: "voyage-3.5",
+  dimensions: 1024,
 } as const;

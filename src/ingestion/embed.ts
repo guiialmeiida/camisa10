@@ -1,26 +1,55 @@
-import OpenAI from "openai";
+import { z } from "zod";
 import { loadEnv } from "../config/env.ts";
 import { EMBEDDING } from "../config/models.ts";
 
-let client: OpenAI | undefined;
+const VOYAGE_EMBEDDINGS_URL = "https://api.voyageai.com/v1/embeddings";
 
-function getClient(): OpenAI {
-  if (client) return client;
-  client = new OpenAI({ apiKey: loadEnv().OPENAI_API_KEY });
-  return client;
-}
+// Response is `unknown` off the wire — it's a boundary, so it's zod.
+const voyageResponseSchema = z.object({
+  data: z.array(
+    z.object({
+      embedding: z.array(z.number()),
+      index: z.number().int(),
+    }),
+  ),
+});
 
-/** One EMBEDDING.dimensions vector per text, in the same order. */
-export async function embedAll(texts: string[]): Promise<number[][]> {
+export type InputType = "query" | "document";
+
+/**
+ * One EMBEDDING.dimensions vector per text, in the same order.
+ *
+ * `inputType` follows Voyage's asymmetric embedding design: "document" at ingestion
+ * time, "query" at question time. Same underlying vector space, better retrieval than
+ * embedding both sides identically — see docs/learning/01.
+ */
+export async function embedAll(texts: string[], inputType: InputType): Promise<number[][]> {
   if (texts.length === 0) return [];
 
-  const openai = getClient();
-  const response = await openai.embeddings.create({
-    model: EMBEDDING.model,
-    input: texts,
+  const { VOYAGE_API_KEY } = loadEnv();
+  const response = await fetch(VOYAGE_EMBEDDINGS_URL, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${VOYAGE_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      input: texts,
+      model: EMBEDDING.model,
+      input_type: inputType,
+    }),
   });
 
-  const vectors = [...response.data].sort((a, b) => a.index - b.index).map((item) => item.embedding);
+  if (!response.ok) {
+    throw new Error(`Voyage embeddings request failed: ${response.status} ${await response.text()}`);
+  }
+
+  const parsed = voyageResponseSchema.safeParse(await response.json());
+  if (!parsed.success) {
+    throw new Error(`Unexpected Voyage embeddings response shape: ${z.prettifyError(parsed.error)}`);
+  }
+
+  const vectors = [...parsed.data.data].sort((a, b) => a.index - b.index).map((item) => item.embedding);
 
   for (const vector of vectors) {
     if (vector.length !== EMBEDDING.dimensions) {
@@ -33,8 +62,8 @@ export async function embedAll(texts: string[]): Promise<number[][]> {
   return vectors;
 }
 
-export async function embed(text: string): Promise<number[]> {
-  const [vector] = await embedAll([text]);
+export async function embed(text: string, inputType: InputType): Promise<number[]> {
+  const [vector] = await embedAll([text], inputType);
   if (!vector) {
     throw new Error("embedding call returned no vectors");
   }
