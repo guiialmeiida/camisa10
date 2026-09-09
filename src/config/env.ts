@@ -7,6 +7,7 @@ const schema = z.object({
   ANTHROPIC_API_KEY: z.string().min(1, "set ANTHROPIC_API_KEY in .env"),
   QDRANT_URL: z.url("QDRANT_URL must be a valid URL"),
   QDRANT_API_KEY: z.string().optional(),
+  QDRANT_COLLECTION: z.string().min(1).default("camisa10"),
 });
 
 export type Env = z.infer<typeof schema>;
