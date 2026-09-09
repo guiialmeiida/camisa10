@@ -1203,6 +1203,45 @@ execução por uma dependência que não existe. Se ele volta a ser obrigatório
 
 Implementado em 2026-09-08 contra a spec da seção "Refinamento técnico", sem reabri-la.
 
+### Adendo pós-aprovação: OpenAI → Voyage AI para embedding
+
+A seção "Refinamento técnico" acima (e o texto histórico dela) especifica
+`text-embedding-3-small` / `OPENAI_API_KEY`. Depois da implementação, o usuário pediu a troca
+para `voyage-3.5` / `VOYAGE_API_KEY` (Voyage AI), para não depender de uma chave paga sem trial —
+a Voyage tem tier gratuito generoso o bastante para este projeto de aprendizado inteiro. Isso
+**não é uma reinterpretação da spec aprovada, é uma decisão nova, pedida explicitamente pelo
+usuário depois da entrega**, e mudou:
+
+- `src/config/models.ts` — `EMBEDDING = { model: "voyage-3.5", dimensions: 1024 }` (era
+  `text-embedding-3-small` / 1536).
+- `src/config/env.ts`, `.env.example`, `tests/setup.test.ts` — `OPENAI_API_KEY` virou
+  `VOYAGE_API_KEY`.
+- `src/ingestion/embed.ts` — reescrito para chamar a REST API da Voyage
+  (`POST https://api.voyageai.com/v1/embeddings`) direto via `fetch`, com o corpo da resposta
+  validado por `zod` (é fronteira), em vez do SDK `openai`. `embedAll`/`embed` ganharam um
+  parâmetro `inputType: "document" | "query"` — a Voyage tem embeddings assimétricos por
+  propósito (documento vs. pergunta usam encodings ligeiramente diferentes do mesmo modelo); a
+  OpenAI não distinguia isso, então esse parâmetro não existia antes. `indexPassages` chama com
+  `"document"`, `searchContext` com `"query"`.
+- `package.json` — dependência `openai` removida (sem substituto: a chamada é `fetch` cru).
+- `tests/models.test.ts`, `tests/trace.test.ts`, `src/vectorstore/qdrant.ts` (comentário) —
+  `1536` → `1024`, `"text-embedding-3-small"` → `"voyage-3.5"`.
+- `docs/architecture.md` (tabela de modelos), `docs/tasks/03-vector-index.md` (decisão de
+  embedding herdada da tarefa 00) e `docs/learning/01-embeddings-and-vector-search.md`
+  (conceito + "Por que não X", com uma entrada nova explicando a troca e o `input_type`
+  assimétrico) foram atualizados para não ensinar um modelo que o código não usa mais.
+
+**O que não mudou**: nenhum contrato público (`embedAll`/`embed` continuam devolvendo
+`number[][]`/`number[]`; `search`/`searchContext` não mudaram assinatura fora do parâmetro novo
+já opcional-por-necessidade em `embed*`), nenhum schema do Qdrant fora da dimensão do vetor. A
+seção "Refinamento técnico" acima fica como registro histórico do que foi aprovado antes desta
+troca — não foi reescrita.
+
+**Consequência prática**: como `npm run index` ainda não rodou (ver "Testes" abaixo), a coleção
+do Qdrant nunca foi populada com vetores de 1536 dimensões — não há dado órfão para migrar.
+Quando o usuário rodar `npm run index` pela primeira vez, já vai gerar com `voyage-3.5`/1024
+direto.
+
 ### O que foi criado
 
 Todos os arquivos da seção 11 ("Arquivos a criar") existem e seguem os contratos, schemas e
@@ -1290,7 +1329,7 @@ transpila por conta própria).
   vetor com dimensão errada pelo próprio Qdrant, e `search` lançando ao encontrar um payload
   fora do schema.
 - **Integração — recall@5 e regra de ouro**: **não executados.** Dependem de
-  `OPENAI_API_KEY` (embedding) e `ANTHROPIC_API_KEY` (agente), e nenhuma das duas chaves
+  `VOYAGE_API_KEY` (embedding) e `ANTHROPIC_API_KEY` (agente), e nenhuma das duas chaves
   estava disponível no ambiente de implementação (sem `.env` do usuário, sem sessão `ant`
   configurada). `npm run index` também não pôde ser rodado pelo mesmo motivo. **O número de
   recall@5 medido contra o Qdrant real fica em aberto** — não foi inventado. Assim que o

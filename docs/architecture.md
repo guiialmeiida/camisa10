@@ -38,7 +38,7 @@ grader julgando vários trechos de uma vez.
 | Extração de entidade | qual time, qual competição, qual rodada | `claude-haiku-4-5` |
 | Planner | decide o plano e quais ferramentas chamar | `claude-opus-5`, effort `medium` |
 | Fatos via API | placar, tabela, jogos — determinístico, sem LLM | — |
-| Busca vetorial | trechos candidatos de notícia/súmula | embedding `text-embedding-3-small` |
+| Busca vetorial | trechos candidatos de notícia/súmula | embedding `voyage-3.5` (Voyage AI) |
 | Grader de relevância | julga cada trecho recuperado, em paralelo | `claude-haiku-4-5` |
 | Redator | escreve a resposta citando as fontes | `claude-opus-5`, effort `high` |
 | Crítico | confere cada número contra os fatos da API | `claude-opus-5`, effort `medium` |

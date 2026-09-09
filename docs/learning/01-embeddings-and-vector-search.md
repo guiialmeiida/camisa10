@@ -17,7 +17,7 @@ O que falta é **significado**, não letra.
 ## O que é um embedding
 
 Um embedding é uma função que transforma texto num vetor de números — uma lista de, digamos,
-1536 casas decimais. A propriedade que importa é só uma:
+1024 casas decimais. A propriedade que importa é só uma:
 
 > **Textos com significado parecido viram vetores próximos no espaço.**
 
@@ -25,8 +25,8 @@ Um embedding é uma função que transforma texto num vetor de números — uma 
 outro, mesmo sem compartilhar palavra nenhuma. "escalação do Corinthians para domingo" cai longe
 dos dois.
 
-O modelo que faz isso (aqui, `text-embedding-3-small`) foi treinado justamente para arranjar o
-espaço assim. Você não escolhe o que cada uma das 1536 dimensões significa — não são "time",
+O modelo que faz isso (aqui, `voyage-3.5`, da Voyage AI) foi treinado justamente para arranjar o
+espaço assim. Você não escolhe o que cada uma das 1024 dimensões significa — não são "time",
 "emoção", "data". São eixos abstratos que o treino produziu, e nenhum humano lê um deles
 isoladamente. O que se lê é a **distância entre dois vetores.**
 
@@ -50,8 +50,8 @@ que o **grader** da tarefa 06 existe para resolver.
 
 ## Três coisas que mordem
 
-**A dimensão é permanente.** A coleção do Qdrant é criada com um número fixo de dimensões (1536
-para o `text-embedding-3-small`). Trocar de modelo de embedding depois muda esse número e obriga
+**A dimensão é permanente.** A coleção do Qdrant é criada com um número fixo de dimensões (1024
+para o `voyage-3.5`). Trocar de modelo de embedding depois muda esse número e obriga
 a **reindexar tudo**. Não é uma linha de config: é reprocessar a base inteira. Por isso a escolha
 do modelo de embedding aparece cedo no projeto.
 
@@ -72,14 +72,26 @@ típico de futebol — apelidos, sinônimos, perífrase. Vale dizer que a respos
 costuma ser **híbrida** (BM25 + vetorial combinados), porque palavra-chave é imbatível para nome
 próprio e número de camisa. Está fora do escopo do MVP, mas é a evolução natural.
 
-**Por que não `text-embedding-3-large`?** É melhor, e mais caro, e tem mais dimensões (índice
-maior, busca mais lenta). Para 3 jogos de fixture a diferença não aparece. A hora de reconsiderar
-é quando o `recall@k` do conjunto de avaliação empacar e o chunking já tiver sido ajustado.
+**Por que não `voyage-3-large` (ou `output_dimension: 2048`)?** É melhor, e mais caro, e tem mais
+dimensões (índice maior, busca mais lenta). Para 3 jogos de fixture a diferença não aparece. A
+hora de reconsiderar é quando o `recall@k` do conjunto de avaliação empacar e o chunking já
+tiver sido ajustado.
 
 **Por que não jogar o texto todo no contexto do LLM e pular o retrieval?** Com 3 jogos, dá. Com
 uma temporada inteira, não cabe — e mesmo cabendo, custa caro por pergunta e a qualidade cai com
 o volume de ruído. O retrieval é o que mantém o custo constante conforme a base cresce.
 
 **Por que o embedding não é da Anthropic?** A Anthropic não oferece endpoint de embedding; o
-`OPENAI_API_KEY` no `.env.example` existe só para isso. Os LLMs do projeto são todos Claude —
+`VOYAGE_API_KEY` no `.env.example` existe só para isso. Os LLMs do projeto são todos Claude —
 ver a tabela de modelos em `docs/architecture.md`.
+
+**Por que Voyage AI e não OpenAI (`text-embedding-3-small`)?** A tarefa 00 foi implementada
+primeiro contra a OpenAI, conforme a spec original aprovada. A troca para Voyage veio depois, a
+pedido do usuário, para evitar depender de uma chave paga sem trial — a Voyage tem um tier
+gratuito generoso (centenas de milhões de tokens) que cobre esse projeto de aprendizado
+inteiro. A troca não muda nenhum conceito desta página: é a mesma peça, outro fornecedor. Um
+detalhe técnico que ela introduz: a Voyage tem embeddings **assimétricos** de propósito — o
+mesmo texto gera um vetor levemente diferente dependendo de `input_type: "document"` (na
+ingestão) ou `input_type: "query"` (na pergunta), porque o modelo foi treinado sabendo qual dos
+dois lados de uma busca cada texto representa. A OpenAI não faz essa distinção; a Voyage faz, e
+o código (`src/ingestion/embed.ts`) respeita isso.
