@@ -38,6 +38,9 @@ export async function embedAll(texts: string[], inputType: InputType): Promise<n
       model: EMBEDDING.model,
       input_type: inputType,
     }),
+    // Same reasoning as the Anthropic client's timeout: an unbounded request can hang
+    // for a very long time instead of failing fast.
+    signal: AbortSignal.timeout(30_000),
   });
 
   if (!response.ok) {

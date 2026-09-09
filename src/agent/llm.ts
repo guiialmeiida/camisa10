@@ -16,7 +16,10 @@ let client: Anthropic | undefined;
 
 function getClient(): Anthropic {
   if (client) return client;
-  client = new Anthropic({ apiKey: loadEnv().ANTHROPIC_API_KEY });
+  // The SDK's defaults (10 min timeout, 2 retries) can let one slow request block for
+  // a very long time and burn real API spend without ever surfacing as a fast, clear
+  // failure — a bounded timeout fails loud instead.
+  client = new Anthropic({ apiKey: loadEnv().ANTHROPIC_API_KEY, timeout: 30_000, maxRetries: 1 });
   return client;
 }
 
