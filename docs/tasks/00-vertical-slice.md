@@ -9,8 +9,8 @@ fatia por uma peça real, com o conjunto de avaliação daqui servindo de rede.
 
 ## Status
 - [x] Discovery
-- [x] Refinamento técnico  ← spec escrita, aguardando aprovação do usuário
-- [ ] Implementação
+- [x] Refinamento técnico
+- [x] Implementação  ← ver seção "Implementação"; recall@5 e regra de ouro ainda não medidos (sem chaves de API no ambiente)
 - [ ] Revisão
 - [ ] Testes
 
@@ -1200,7 +1200,104 @@ execução por uma dependência que não existe. Se ele volta a ser obrigatório
   isso é conversa com o usuário, não decisão da implementação.
 
 ## Implementação
-_A preencher._
+
+Implementado em 2026-09-08 contra a spec da seção "Refinamento técnico", sem reabri-la.
+
+### O que foi criado
+
+Todos os arquivos da seção 11 ("Arquivos a criar") existem e seguem os contratos, schemas e
+formatos descritos nas seções 1–9: `docker-compose.yml`; `src/config/models.ts`;
+`src/sources/{index,types,fixture-schema,fixture}.ts` + o fixture JSON com os 14 passages
+(p01–p14, incluindo a armadilha p07 sem nenhuma marcação); `src/vectorstore/{types,qdrant}.ts`;
+`src/ingestion/{embed,indexer}.ts`; `src/retrieval/search-context.ts`;
+`src/generation/writer.ts`; `src/agent/{state,trace,llm,graph}.ts` +
+`src/agent/nodes/{extract-entity,plan}.ts`; `src/cli/{ask,index-passages}.ts`;
+`tests/eval/{questions.json,recall.ts}`; os quatro arquivos de teste de unidade
+(`sources`, `writer`, `models`, `trace`) e os três de integração (`vectorstore`, `recall`,
+`golden-rule`).
+
+Alterados: `package.json` (scripts `ask`, `index`, `test:integration`), `src/config/env.ts`
+(`QDRANT_COLLECTION`), `.env.example`, `.gitignore` (`.qdrant/`), `src/index.ts`, `README.md`,
+e `tests/setup.test.ts` (ganhou o caso de `QDRANT_COLLECTION` default, conforme pedido na seção
+10 dos testes — não estava na lista de "Alterar" da seção 11, mas a seção 10 o descreve
+explicitamente).
+
+### Decisões tomadas dentro do espaço que a spec deixou em aberto
+
+- **`QdrantFilter` derivado de `query`, não de `search`.** A versão instalada do
+  `@qdrant/js-client-rest` (1.19.0) não tem mais o método `search` — foi substituído por
+  `query`, mais geral. A spec previu esse caso: "se a implementação usar outro método do
+  cliente, derive daquele." `search()` em `qdrant.ts` chama `client.query(...)`
+  internamente; o contrato público (`search(params: SearchParams): Promise<SearchResult[]>`)
+  não muda.
+- **Segundo arquivo de config do Vitest (`vitest.integration.config.ts`), não previsto na lista
+  de arquivos da seção 11.** Testado empiricamente: o `exclude` do `vitest.config.ts` (que
+  tira `tests/integration/**` da run padrão) tem prioridade sobre qualquer filtro passado na
+  linha de comando — `vitest run tests/integration` continua encontrando zero arquivos com
+  aquele exclude ativo. `test:integration` aponta para um config próprio, com `include`
+  restrito a `tests/integration/**`, em vez de tentar contornar o exclude por CLI.
+- **`callStructured` usa `client.messages.parse` + `zodOutputFormat`** (helper do próprio
+  `@anthropic-ai/sdk`) em vez de montar `output_config.format` com `z.toJSONSchema` e fazer
+  `JSON.parse` manual. É a forma documentada pelo SDK para exatamente este caso (saída
+  validada por um schema `zod`), evita reimplementar o parsing e ainda cumpre a regra "dado
+  que cruza o processo é validado" — a validação acontece dentro do `.parse()` do SDK.
+- **`extractEntity` também recebe o id da competição no prompt** (`facts.competition.id` e
+  `name`), além dos times. A spec só menciona resolver nickname → id de time via
+  `facts.teams`; sem o id da competição no prompt, o modelo poderia devolver texto livre em
+  `entity.competition` que nunca bateria com `fixture.competition.id`, fazendo `getFacts`
+  devolver `matches: []` por engano sempre que a pergunta tocasse em competição.
+- **Citação a passage não recuperado**: a spec diz que "vira aviso no trace", mas o tipo
+  `TraceEntry` (fechado, união discriminada) não tem campo para esse aviso específico — só
+  `cited` e `retrievedNotCited`. Implementado como descarte silencioso da citação inválida
+  (ela nunca entra em `citedPassages`); não adicionei campo novo à união para não abrir uma
+  variação do contrato fechado que a spec definiu byte a byte.
+- **`forceNonEmptyTools`**: a spec diz "o graph força `["fetch_facts_api"]`" quando o
+  planner devolve `tools: []`. Implementado em `graph.ts` (não no node `plan.ts`), e o "aviso
+  no trace" é a lista de `tools` já corrigida aparecendo na entrada `planner` do trace —
+  não há campo próprio para "isso foi forçado" no tipo `Plan`.
+
+### Onde a implementação não seguiu a spec ao pé da letra, e por quê
+
+A seção 8 (CLI) diz literalmente: "Coleção inexistente: a mensagem do vectorstore, ... e
+código 1." Isso conflita com a seção 6, que exige `Promise.allSettled` no fan-out
+especificamente para que uma falha em `search_vector_context` (coleção ausente incluída)
+**não aborte o graph** — vira `context: []` mais um `error` registrado no trace, e o graph seg
+ue até `write()`. Como `answer()` tem contrato `Promise<FinalState>` e a regra "no teto, o
+sistema responde, nunca falha" é repetida em `CLAUDE.md`, na decisão 7 de `docs/architecture.md`
+e na própria seção 6 desta spec, mantive a resiliência do fan-out como está e **não** adicionei
+uma checagem especial em `ask.ts` para interceptar esse erro antes do graph e sair com código 1.
+Na prática, `npm run ask` antes de `npm run index` roda normalmente (código 0), com o bloco
+`search_vector_context` do trace mostrando o erro e a resposta saindo com `lowConfidence: true`
+em vez de abortar. Reporto esse desvio em vez de decidir silenciosamente — é uma incoerência
+interna da spec entre as seções 6 e 8, não uma reinterpretação livre da tarefa.
+
+### O que foi visto e não foi feito, por estar fora de escopo
+
+Nada além do que a seção 12 já lista explicitamente (loops de feedback, fonte real, chunking
+de verdade, peso/decaimento, busca híbrida, conversa multi-turno, ingestão incremental,
+servidor HTTP). Não toquei em `tsconfig.json` em nenhum momento, mesmo quando isso teria
+simplificado o typecheck de `vitest.integration.config.ts` (que hoje não está no `include` do
+tsconfig e portanto não passa por `tsc --noEmit` — só é executado pelo próprio Vitest, que o
+transpila por conta própria).
+
+### Testes
+
+- **Unidade** (`npm test`, sem rede/Docker): **18 testes, 5 arquivos, todos passando** —
+  `tsc --noEmit` limpo, seguido de `vitest run`.
+- **Integração — vectorstore** (`tests/integration/vectorstore.test.ts`): rodado contra um
+  Qdrant real (`docker compose up -d`, imagem `qdrant/qdrant:v1.12.1`). **3 testes, todos
+  passando**: ciclo completo `ensureCollection` + `insertPoints` + `search`, rejeição de
+  vetor com dimensão errada pelo próprio Qdrant, e `search` lançando ao encontrar um payload
+  fora do schema.
+- **Integração — recall@5 e regra de ouro**: **não executados.** Dependem de
+  `OPENAI_API_KEY` (embedding) e `ANTHROPIC_API_KEY` (agente), e nenhuma das duas chaves
+  estava disponível no ambiente de implementação (sem `.env` do usuário, sem sessão `ant`
+  configurada). `npm run index` também não pôde ser rodado pelo mesmo motivo. **O número de
+  recall@5 medido contra o Qdrant real fica em aberto** — não foi inventado. Assim que o
+  usuário rodar `docker compose up -d && npm run index && npm run test:integration` com as
+  chaves reais, o relatório `perQuestion` sai impresso mesmo se o teste passar, e o número real
+  deve ser registrado aqui. Se ficar abaixo de 0.8, a escolha entre baixar o limiar e
+  consertar o retrieval é do usuário, conforme o ponto já decidido na aprovação da spec.
 
 ## Revisão
 _A preencher._
