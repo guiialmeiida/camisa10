@@ -1,5 +1,5 @@
 import "dotenv/config";
-import { beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { loadEnv } from "../../src/config/env.ts";
 import { EMBEDDING } from "../../src/config/models.ts";
 import { countPoints, ensureCollection, getClient, insertPoints, search } from "../../src/vectorstore/qdrant.ts";
@@ -30,8 +30,24 @@ function samplePoint(id: number, passageId: string): Point {
 }
 
 describe("vectorstore round-trip", () => {
+  // Runs against its own collection, never `QDRANT_COLLECTION` — that one is the real
+  // index `npm run index` populates, and recall.test.ts / golden-rule.test.ts depend on
+  // it still holding the 14 fixture passages when they run. `recreate: true` below would
+  // otherwise wipe it out from under them.
+  const originalCollection = process.env["QDRANT_COLLECTION"];
+
   beforeAll(async () => {
+    process.env["QDRANT_COLLECTION"] = "camisa10-vectorstore-test";
     await ensureCollection({ recreate: true });
+  });
+
+  afterAll(async () => {
+    await getClient().deleteCollection(loadEnv().QDRANT_COLLECTION);
+    if (originalCollection === undefined) {
+      delete process.env["QDRANT_COLLECTION"];
+    } else {
+      process.env["QDRANT_COLLECTION"] = originalCollection;
+    }
   });
 
   it("ensureCollection + insertPoints + search does the full cycle", async () => {
