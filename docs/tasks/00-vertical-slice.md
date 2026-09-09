@@ -1354,11 +1354,66 @@ transpila por conta própria).
   (~15 chamadas sequenciais) e estourava esse limite. Corrigido em commit separado: as
   perguntas do eval agora são embedadas numa única chamada em lote
   (`embedAll(questions.map(q => q.question), "query")`), o que `embedAll` já suportava.
-- **Integração — regra de ouro** (`golden-rule.test.ts`): **não executado.** A conta Anthropic
-  usada não tinha crédito de API disponível (assinatura mensal do Claude.ai/Pro-Max não cobre
-  chamadas de API — são dois produtos com billing separado). Fica pendente até o usuário
-  carregar crédito em `console.anthropic.com` → Plans & Billing; o custo esperado é de
-  centavos (3 execuções × 3 chamadas de LLM, a maioria Haiku).
+- **Integração — regra de ouro** (`golden-rule.test.ts`): **passou, 3/3 execuções**, depois
+  de o usuário carregar crédito de API (assinatura mensal do Claude.ai/Pro-Max não cobre
+  chamadas de API — são dois produtos com billing separado; não há como usar uma pela outra).
+
+  A primeira execução real revelou um caso genuíno: o writer citava o placar errado do p07
+  ("2 a 0") **para refutá-lo** — "...contradiz o placar oficial (1 x 3)". Semanticamente é uma
+  resposta boa (não afirma o número como verdade, cita a fonte, corrige), mas a spec é literal
+  na assertiva 3 do golden-rule ("o score do p07 não aparece em nenhuma grafia") — sem exceção
+  para refutação. Corrigido apertando o prompt do writer (commit `fix(generation)`): agora ele é
+  instruído a descrever a divergência entre context e facts **sem repetir o número
+  conflitante** ("uma das fontes traz um placar diferente do oficial"). `tests/writer.test.ts`
+  atualizado para a nova frase.
+
+  Nota sobre estabilidade do teste: gravar uma passada limpa deste teste no cassette (abaixo)
+  levou várias tentativas — cerca de metade das execuções reais batia em "invalid setup" (p07
+  fora do top-5). Investigado com um script à parte: o score do p07 fica por volta de 0.58,
+  perto do corte do `k=5` (o 1º lugar ficou em 0.611 numa medição). Pequenas variações na
+  reescrita da `searchQuery` pelo `planner` (LLM, não determinístico) bastam pra empurrar o p07
+  pra dentro ou fora do top-5. Isso é variância esperada de ter um LLM reescrevendo a busca —
+  `recall.test.ts` evita esse problema de propósito, usando a pergunta crua sem passar pelo
+  planner (ver seção 9 da spec) — e não é um bug para consertar nesta tarefa.
+
+### Cache de gravação/replay para os testes de integração (`LLM_CASSETTE`)
+
+Adicionado a pedido do usuário: rodar `golden-rule.test.ts` e `recall.test.ts` contra a API
+real toda vez que se está depurando um teste ou iterando em cima de código não relacionado
+gasta crédito de verdade a cada execução — e, sem cartão cadastrado na Voyage, esbarra no rate
+limit de 3 req/min. `tests/integration/support/llm-cassette.ts` intercepta `fetch` para
+`api.anthropic.com` e `api.voyageai.com`, opt-in via variável de ambiente:
+
+- **sem `LLM_CASSETTE`** (padrão): comportamento inalterado, sempre API real. É o que
+  `npm run test:integration` continua fazendo se você não setar nada.
+- **`LLM_CASSETTE=record npm run test:integration`**: chama a API de verdade e grava cada
+  resposta em `tests/integration/__cassettes__/llm-calls.json`, indexada pelo conteúdo da
+  requisição. Chamadas idênticas (o `golden-rule.test.ts` faz a mesma pergunta 3 vezes de
+  propósito, pra checar o invariante em gerações independentes) viram uma **lista ordenada**,
+  não uma substituição — a gravação preserva as 3 respostas reais distintas em vez de
+  colapsá-las numa só. Só respostas de sucesso (2xx) são gravadas; um 429 ou erro passa direto,
+  sem entrar no cache — senão um rate limit gravado por engano faria o replay falhar pra
+  sempre.
+- **`LLM_CASSETTE=replay npm run test:integration`**: reusa as respostas gravadas, sem nenhuma
+  chamada de rede pra Anthropic/Voyage. Suíte inteira (vectorstore + recall + golden-rule) roda
+  em menos de 1s, custo zero. Uma requisição sem entrada correspondente no cassette lança erro
+  explícito (não cai pra rede silenciosamente) — sinal de que o prompt mudou e precisa
+  regravar.
+
+O Qdrant local nunca é cacheado (já é grátis e rápido).
+
+O arquivo `tests/integration/__cassettes__/llm-calls.json` **está commitado no repo** — só tem
+prompts e respostas sobre o fixture fictício, nenhum segredo — então `LLM_CASSETTE=replay`
+funciona pra qualquer pessoa que clonar o repo, sem precisar de chave de API nenhuma, até que
+os prompts mudem e ele precise ser regravado.
+
+**Cuidado ao regravar**: como o replay consome as entradas na ordem em que foram gravadas, uma
+tentativa de gravação que inclui uma resposta de rate limit ou uma rodada de `golden-rule.test.ts`
+com "invalid setup" **não pode** ser misturada com uma gravação limpa — as entradas ruins
+(ainda que sejam respostas 200 válidas, só que de uma rodada que não provou o invariante) ficam
+na frente da fila e o replay as consome primeiro. Na prática, gravar este cassette exigiu um
+ciclo de backup → tentativa → se falhar, restaurar o backup e tentar de novo — não dá pra só
+rodar `LLM_CASSETTE=record` em cima de um cassette que já tem uma tentativa mal-sucedida.
 
 ## Revisão
 _A preencher._
