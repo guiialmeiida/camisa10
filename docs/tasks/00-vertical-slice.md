@@ -1328,15 +1328,37 @@ transpila por conta própria).
   passando**: ciclo completo `ensureCollection` + `insertPoints` + `search`, rejeição de
   vetor com dimensão errada pelo próprio Qdrant, e `search` lançando ao encontrar um payload
   fora do schema.
-- **Integração — recall@5 e regra de ouro**: **não executados.** Dependem de
-  `VOYAGE_API_KEY` (embedding) e `ANTHROPIC_API_KEY` (agente), e nenhuma das duas chaves
-  estava disponível no ambiente de implementação (sem `.env` do usuário, sem sessão `ant`
-  configurada). `npm run index` também não pôde ser rodado pelo mesmo motivo. **O número de
-  recall@5 medido contra o Qdrant real fica em aberto** — não foi inventado. Assim que o
-  usuário rodar `docker compose up -d && npm run index && npm run test:integration` com as
-  chaves reais, o relatório `perQuestion` sai impresso mesmo se o teste passar, e o número real
-  deve ser registrado aqui. Se ficar abaixo de 0.8, a escolha entre baixar o limiar e
-  consertar o retrieval é do usuário, conforme o ponto já decidido na aprovação da spec.
+- **Integração — recall@5**: medido em 2026-09-08 contra o Qdrant real (`npm run index`,
+  14 points) e a Voyage real. **`recall@5 = 0.929`**, acima do limiar de `0.8` acordado na
+  aprovação da spec. Relatório completo (`tests/eval/recall.ts` → `measureRecall`):
+
+  | id | recall | esperado | recuperado@5 |
+  |---|---|---|---|
+  | e01 | **0.00** | `[p03]` | `p06, p05, p02, p01, p09` |
+  | e02–e13, e15 | 1.00 cada | — | — |
+  | e14 (controle, `expectedPassages: []`) | excluído da média | — | `p13, p09, p06, p04, p12` |
+
+  **O único miss é `e01`** — "o Palmeiras está numa fase ruim?", que deveria recuperar `p03`
+  (o trecho que só menciona o Palmeiras pelo apelido "alviverde", sem o nome do time). É
+  precisamente o caso adversarial que o discovery pediu para o fixture cobrir (ver seção
+  "Discovery" acima: "apelido sem o nome do time... é o único momento em que sai de graça").
+  O `recall@5` agregado passa porque é média macro sobre 14 perguntas válidas, mas o caso mais
+  interessante do conjunto de avaliação falhou — vale considerar isso ao decidir chunking
+  (tarefa 03) ou reescrita de query (o `planner` já tenta isso; nesta medição a busca usa a
+  pergunta crua, sem passar pelo planner, de propósito). Não é motivo para baixar o limiar:
+  o limiar continua sendo cumprido, e "consertar" esse caso específico é trabalho de tarefa
+  futura, não desta.
+
+  Nota de execução: a Voyage AI, sem cartão de pagamento cadastrado na conta, limita a 3
+  requisições/min — `measureRecall` originalmente fazia uma chamada de embedding por pergunta
+  (~15 chamadas sequenciais) e estourava esse limite. Corrigido em commit separado: as
+  perguntas do eval agora são embedadas numa única chamada em lote
+  (`embedAll(questions.map(q => q.question), "query")`), o que `embedAll` já suportava.
+- **Integração — regra de ouro** (`golden-rule.test.ts`): **não executado.** A conta Anthropic
+  usada não tinha crédito de API disponível (assinatura mensal do Claude.ai/Pro-Max não cobre
+  chamadas de API — são dois produtos com billing separado). Fica pendente até o usuário
+  carregar crédito em `console.anthropic.com` → Plans & Billing; o custo esperado é de
+  centavos (3 execuções × 3 chamadas de LLM, a maioria Haiku).
 
 ## Revisão
 _A preencher._
