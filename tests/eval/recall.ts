@@ -1,7 +1,8 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
-import { searchContext } from "../../src/retrieval/search-context.ts";
+import { embedAll } from "../../src/ingestion/embed.ts";
+import { search } from "../../src/vectorstore/qdrant.ts";
 import type { Mode } from "../../src/agent/state.ts";
 
 export const evalQuestionSchema = z.strictObject({
@@ -56,13 +57,24 @@ export async function measureRecall(options?: { k?: number | undefined }): Promi
   const k = options?.k ?? 5;
   const questions = await loadQuestions();
 
+  // Batched into a single embedding call instead of one per question: Voyage's free-tier
+  // rate limit (3 requests/min without a payment method on file) can't take ~15 sequential
+  // requests, and the questions are independent — one call embeds all of them just as well.
+  const vectors = await embedAll(
+    questions.map((question) => question.question),
+    "query",
+  );
+
   const perQuestion: QuestionRecall[] = [];
   const recallScores: number[] = [];
   let falsePositives = 0;
 
-  for (const question of questions) {
+  for (const [index, question] of questions.entries()) {
+    const vector = vectors[index];
+    if (!vector) throw new Error(`missing embedding for question ${question.id}`);
+
     // The raw question, not passed through the planner — this measures retrieval, not the LLM.
-    const results = await searchContext({ query: question.question, k });
+    const results = await search({ vector, k });
     const retrieved = results.map((result) => result.payload.passageId);
 
     if (question.expectedPassages.length === 0) {
