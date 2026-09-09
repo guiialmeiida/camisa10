@@ -35,4 +35,11 @@ describe("loadEnv", () => {
 
     expect(() => loadEnv()).toThrow();
   });
+
+  it("defaults QDRANT_COLLECTION to camisa10 when absent", () => {
+    process.env = { ...process.env, ...fakeEnv };
+    delete process.env.QDRANT_COLLECTION;
+
+    expect(loadEnv().QDRANT_COLLECTION).toBe("camisa10");
+  });
 });
