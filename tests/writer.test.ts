@@ -87,7 +87,7 @@ describe("buildPrompt", () => {
     const prompt = buildPrompt(buildState());
 
     expect(prompt.system).toMatch(/facts.*(certos|vencem|prevalecem)/i);
-    expect(prompt.system.toLowerCase()).toContain("nunca copie um número do context");
+    expect(prompt.system.toLowerCase()).toContain("nunca escreva, na resposta, nenhum número");
   });
 
   it("asks for low confidence when context is empty", () => {
