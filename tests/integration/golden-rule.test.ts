@@ -1,6 +1,23 @@
 import "dotenv/config";
-import { describe, expect, it } from "vitest";
-import { answer } from "../../src/agent/graph.ts";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+
+// Task 01 moved sources off the fixture, so `npm run index` now indexes real news —
+// the evaluation can't depend on whatever happens to be in the shared collection
+// anymore. This mocks src/sources/index.ts back to the fixture double, just for this
+// file, and indexes it into its own collection below (spec §12, decision 2).
+vi.mock("../../src/sources/index.ts", async () => {
+  const fixtureSource = await import("../fixtures/fixture-source.ts");
+  return {
+    getFacts: fixtureSource.getFacts,
+    listPassages: fixtureSource.listPassages,
+    listTeams: fixtureSource.listTeams,
+    COMPETITION: fixtureSource.COMPETITION,
+  };
+});
+
+const { answer } = await import("../../src/agent/graph.ts");
+const { indexPassages } = await import("../../src/ingestion/indexer.ts");
+const { isoDateParts } = await import("../../src/generation/match-format.ts");
 import type { FinalState } from "../../src/agent/state.ts";
 
 // Every spelling of the trap chronicle's (p07) wrong score — must never reach the answer.
@@ -19,12 +36,19 @@ function findOrphanNumbers(state: FinalState): number[] {
     allowed.add(state.facts.matchweek);
     allowed.add(state.facts.competition.season);
     for (const match of state.facts.matches) {
-      const date = new Date(match.date);
-      allowed.add(date.getDate());
-      allowed.add(date.getMonth() + 1);
-      if (match.status !== "scheduled") {
+      // Reads the day/month straight off the ISO string's digits, like match-format.ts
+      // does in production — new Date(...).getDate() depends on the host's timezone,
+      // which is exactly the bug task 00's review fixed in the code under test. This
+      // test would silently carry that same bug back in if it used Date getters here.
+      const { day, month } = isoDateParts(match.date);
+      allowed.add(day);
+      allowed.add(month);
+      if (match.status === "finished" || match.status === "live") {
         allowed.add(match.score.home);
         allowed.add(match.score.away);
+        if (match.status === "live" && match.minute !== null) {
+          allowed.add(match.minute);
+        }
       }
     }
   }
@@ -37,6 +61,23 @@ function findOrphanNumbers(state: FinalState): number[] {
 }
 
 describe("golden rule: no number leaks from the vector index", () => {
+  const originalCollection = process.env["QDRANT_COLLECTION"];
+
+  beforeAll(async () => {
+    process.env["QDRANT_COLLECTION"] = "camisa10-eval";
+    await indexPassages();
+    // Default hook timeout (5-10s) can be too tight for embedAll + ensureCollection +
+    // insertPoints over the fixture's 14 passages, depending on Voyage's latency.
+  }, 30_000);
+
+  afterAll(() => {
+    if (originalCollection === undefined) {
+      delete process.env["QDRANT_COLLECTION"];
+    } else {
+      process.env["QDRANT_COLLECTION"] = originalCollection;
+    }
+  });
+
   it(
     "never lets the trap chronicle's wrong score reach the answer, across 3 runs",
     async () => {
@@ -58,8 +99,20 @@ describe("golden rule: no number leaks from the vector index", () => {
         }
 
         expect(findOrphanNumbers(state)).toEqual([]);
+
+        // Voyage's free tier (3 requests/min without a payment method on file) counts
+        // indexPassages()'s own embedding call in beforeAll plus each run's query
+        // embedding within the same rolling minute — four calls comfortably exceed it.
+        // Without this pause, the 4th call (run 3's search) gets rate-limited; because
+        // runFanOut uses Promise.allSettled (spec §6), that surfaces as a silent,
+        // misleading `context: []` — "invalid setup" — rather than a clear 429 error.
+        // Skipped under LLM_CASSETTE: replay hits no real rate limit, and record already
+        // spaces its own real calls out across separate runs of this suite.
+        if (run < 3 && process.env["LLM_CASSETTE"] === undefined) {
+          await new Promise((resolve) => setTimeout(resolve, 20_000));
+        }
       }
     },
-    120_000,
+    180_000,
   );
 });
