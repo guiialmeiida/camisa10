@@ -36,6 +36,22 @@ npm test                 # unidade + typecheck — sem rede, sem Docker
 npm run test:integration # recall@k, regra de ouro — precisa de Docker + chaves de API
 ```
 
+`npm run test:integration` ainda precisa de `VOYAGE_API_KEY`/`ANTHROPIC_API_KEY` preenchidas no
+`.env` mesmo em replay (`loadEnv()` exige presença antes de qualquer chamada) — mas não precisam
+ser chaves reais nesse modo, já que nenhuma chamada de rede acontece:
+
+```bash
+LLM_CASSETTE=record npm run test:integration  # chama Anthropic/Voyage de verdade e grava a resposta
+LLM_CASSETTE=replay npm run test:integration  # reusa o que já foi gravado, sem rede, sem custo
+npm run test:integration                      # sem LLM_CASSETTE: sempre API real (padrão)
+```
+
+O cassette gravado (`tests/integration/__cassettes__/llm-calls.json`) já está commitado, então
+`LLM_CASSETTE=replay` funciona de graça assim que você clona o repo — até que os prompts mudem e
+ele precise ser regravado. Ver `tests/integration/support/llm-cassette.ts` para os detalhes, e
+o aviso impresso em modo replay: ele reproduz gerações já gravadas, não reprova o invariante da
+regra de ouro contra uma geração nova — para isso, rode sem `LLM_CASSETTE`.
+
 ## Estrutura
 
 - `src/sources/` — clientes das fontes de dados (API de futebol, notícias)

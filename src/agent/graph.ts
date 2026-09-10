@@ -1,3 +1,4 @@
+import { loadEnv } from "../config/env.ts";
 import { EMBEDDING, MODELS } from "../config/models.ts";
 import { write } from "../generation/writer.ts";
 import { searchContext } from "../retrieval/search-context.ts";
@@ -67,7 +68,8 @@ function forceNonEmptyTools(state: StateWithPlan): StateWithPlan {
   return { ...state, plan: { ...state.plan, tools: ["fetch_facts_api"] } };
 }
 
-async function runFanOut(state: StateWithPlan, trace: TraceEntry[]): Promise<StateWithData> {
+/** Exported separately so the Promise.allSettled resilience (spec §6) is testable without spending on the API. */
+export async function runFanOut(state: StateWithPlan, trace: TraceEntry[]): Promise<StateWithData> {
   const factsCall = measure(() =>
     getFacts({
       team: state.entity.team ?? undefined,
@@ -116,6 +118,7 @@ async function runFanOut(state: StateWithPlan, trace: TraceEntry[]): Promise<Sta
     model: EMBEDDING.model,
     ms: contextMs,
     k: state.k,
+    collection: loadEnv().QDRANT_COLLECTION,
     collectionSize,
     results: context,
     ...(contextError !== undefined ? { error: contextError } : {}),

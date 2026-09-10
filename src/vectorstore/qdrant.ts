@@ -8,8 +8,8 @@ import type { Point, SearchResult } from "./types.ts";
 // Derived from the client itself — not hand-retyping the filter shape.
 // This client (@qdrant/js-client-rest 1.19) no longer has a `search` method — it was
 // replaced by the more general `query` — so the filter is derived from that instead,
-// exactly as the spec allows: "se a implementação usar outro método do cliente, derive
-// daquele."
+// exactly as the spec allows: implementation may use a different client method and
+// derive the filter type from that one instead.
 export type QdrantFilter = NonNullable<
   NonNullable<Parameters<QdrantClient["query"]>[1]>["filter"]
 >;

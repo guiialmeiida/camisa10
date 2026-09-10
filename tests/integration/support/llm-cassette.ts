@@ -93,13 +93,13 @@ function installCassette(mode: "record" | "replay"): void {
     // recorded here would replay as a permanent failure forever after.
     if (response.ok) {
       const text = await response.clone().text();
-      // content-encoding/content-length/transfer-encoding describe the wire bytes, not
-      // the already-decoded `text` above — replaying them verbatim would make the next
-      // fetch consumer try to gunzip plain text, or choke on a length that no longer matches.
+      // Allowlist, not blocklist: real responses carry account-identifying headers
+      // (anthropic-organization-id, anthropic-workspace-id, request-id, cf-ray, Voyage's
+      // billing-status warning...) that must never end up in a cassette committed to a
+      // public repo. content-type is the only one the SDKs need to parse the replayed
+      // response; nothing else is used by anything that reads a cassette entry.
       const headers = Object.fromEntries(
-        [...response.headers.entries()].filter(
-          ([name]) => !["content-encoding", "content-length", "transfer-encoding"].includes(name),
-        ),
+        [...response.headers.entries()].filter(([name]) => name === "content-type"),
       );
       cassette[key] ??= [];
       cassette[key].push({ status: response.status, headers, body: text });
@@ -112,4 +112,17 @@ function installCassette(mode: "record" | "replay"): void {
 const mode = resolveMode();
 if (mode !== null) {
   installCassette(mode);
+  if (mode === "replay") {
+    // golden-rule.test.ts asks an LLM to generate text 3 times and checks an invariant
+    // that depends on that generation — a cassette recording is, by construction, a
+    // sample that happened to satisfy it (recording it took several attempts; see
+    // docs/tasks/00-vertical-slice.md). Replaying it proves the code around the LLM
+    // calls didn't regress; it does NOT re-prove the invariant against a fresh
+    // generation. Run without LLM_CASSETTE for that.
+    console.warn(
+      "[llm-cassette] LLM_CASSETTE=replay reproduces previously-recorded LLM generations verbatim — " +
+        "it validates code around those calls, not the model's behavior on a fresh generation. " +
+        "Run without LLM_CASSETTE to re-verify the golden-rule invariant itself.",
+    );
+  }
 }
