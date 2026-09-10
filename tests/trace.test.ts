@@ -4,7 +4,7 @@ import type { TraceEntry } from "../src/agent/trace.ts";
 import type { FinalState } from "../src/agent/state.ts";
 import type { PassagePayload } from "../src/vectorstore/types.ts";
 
-function buildFinalState(trace: TraceEntry[]): FinalState {
+function buildFinalState(trace: TraceEntry[], overrides: Partial<FinalState> = {}): FinalState {
   return {
     question: "o Palmeiras está numa fase ruim?",
     k: 5,
@@ -19,6 +19,7 @@ function buildFinalState(trace: TraceEntry[]): FinalState {
     facts: null,
     context: [],
     answer: { text: "resposta de teste [p03]", citedPassages: ["p03"], lowConfidence: false },
+    ...overrides,
   };
 }
 
@@ -89,6 +90,7 @@ describe("formatTrace", () => {
         model: "voyage-3.5",
         ms: 290,
         k: 5,
+        collection: "camisa10",
         collectionSize: 14,
         results: [
           { id: 3, score: 0.612, payload: samplePayload("p03") },
@@ -117,7 +119,108 @@ describe("formatTrace", () => {
       expect(output).toContain(id);
     }
     expect(output).toContain("0.612");
+    expect(output).toContain("k=5 over 14 points in collection camisa10");
     expect(output).toMatch(/total:.*LLM calls.*embedding call/);
+  });
+
+  it("prints the real collection name instead of a hardcoded one", () => {
+    const trace: TraceEntry[] = [
+      {
+        node: "search_vector_context",
+        model: "voyage-3.5",
+        ms: 100,
+        k: 5,
+        collection: "camisa10-dev",
+        collectionSize: 14,
+        results: [{ id: 1, score: 0.5, payload: samplePayload("p01") }],
+      },
+    ];
+
+    expect(formatTrace(buildFinalState(trace))).toContain("in collection camisa10-dev");
+  });
+
+  it("prints the real facts source instead of a hardcoded 'fixture'", () => {
+    const trace: TraceEntry[] = [
+      {
+        node: "fetch_facts_api",
+        model: null,
+        ms: 5,
+        facts: {
+          competition: { id: "brasileirao-serie-a", name: "Brasileirão Série A", season: 2026 },
+          matchweek: 12,
+          matches: [],
+          teams: [],
+          source: "api",
+        },
+      },
+    ];
+
+    expect(formatTrace(buildFinalState(trace))).toContain("source: api");
+  });
+
+  it("says '1 LLM call' in the singular", () => {
+    const trace: TraceEntry[] = [
+      { node: "entityExtraction", model: "claude-haiku-4-5", ms: 100, entity: { team: null, competition: null, matchweek: null, confidence: "low" } },
+    ];
+
+    expect(formatTrace(buildFinalState(trace))).toContain("1 LLM call ·");
+  });
+
+  it("does not double-count the fan-out's parallel time in the total", () => {
+    const trace: TraceEntry[] = [
+      {
+        node: "fetch_facts_api",
+        model: null,
+        ms: 800,
+        facts: {
+          competition: { id: "brasileirao-serie-a", name: "Brasileirão Série A", season: 2026 },
+          matchweek: 12,
+          matches: [],
+          teams: [],
+          source: "fixture",
+        },
+      },
+      {
+        node: "search_vector_context",
+        model: "voyage-3.5",
+        ms: 300,
+        k: 5,
+        collection: "camisa10",
+        collectionSize: 14,
+        results: [],
+      },
+    ];
+
+    // Sequential ms would be 800 + 300 = 1100ms; the two ran in parallel, so the
+    // total must reflect the slower of the two (800ms), not their sum.
+    expect(formatTrace(buildFinalState(trace))).toContain("total: 0.80s");
+  });
+
+  it("says which condition caused low confidence instead of a fixed wrong message", () => {
+    const missingFactsOnly = formatTrace(
+      buildFinalState([], {
+        facts: null,
+        context: [{ id: 1, score: 0.5, payload: samplePayload("p01") }],
+        answer: { text: "resposta", citedPassages: [], lowConfidence: true },
+      }),
+    );
+    expect(missingFactsOnly).toContain("no API facts");
+    expect(missingFactsOnly).not.toContain("no narrative context, API facts only");
+
+    const missingContextOnly = formatTrace(
+      buildFinalState([], {
+        facts: {
+          competition: { id: "brasileirao-serie-a", name: "Brasileirão Série A", season: 2026 },
+          matchweek: 12,
+          matches: [],
+          teams: [],
+          source: "fixture",
+        },
+        context: [],
+        answer: { text: "resposta", citedPassages: [], lowConfidence: true },
+      }),
+    );
+    expect(missingContextOnly).toContain("no narrative context, API facts only");
   });
 
   it("lists a retrieved passage that was not cited", () => {

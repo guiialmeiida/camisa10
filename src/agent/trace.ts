@@ -1,3 +1,4 @@
+import { formatMatchDateTime, teamName } from "../generation/match-format.ts";
 import type { Facts, Match, Team } from "../sources/index.ts";
 import type { SearchResult } from "../vectorstore/types.ts";
 import type { Entity, FinalState, Plan } from "./state.ts";
@@ -11,6 +12,7 @@ export type TraceEntry =
       model: string;
       ms: number;
       k: number;
+      collection: string;
       collectionSize: number;
       results: SearchResult[];
       error?: string;
@@ -36,19 +38,10 @@ function formatSeconds(ms: number): string {
   return `${(ms / 1000).toFixed(2)}s`;
 }
 
-function formatShortDate(iso: string): string {
-  const date = new Date(iso);
-  const day = String(date.getDate()).padStart(2, "0");
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const hour = String(date.getHours()).padStart(2, "0");
-  const minute = String(date.getMinutes()).padStart(2, "0");
-  return `${day}/${month} ${hour}:${minute}`;
-}
-
 function formatMatchSummary(match: Match, teams: Team[]): string {
-  const homeName = teams.find((team) => team.id === match.homeTeam)?.name ?? match.homeTeam;
-  const awayName = teams.find((team) => team.id === match.awayTeam)?.name ?? match.awayTeam;
-  const date = formatShortDate(match.date);
+  const homeName = teamName(match.homeTeam, teams);
+  const awayName = teamName(match.awayTeam, teams);
+  const date = formatMatchDateTime(match.date);
 
   if (match.status === "scheduled") {
     return `${homeName} x ${awayName}   scheduled   ${date}`;
@@ -67,6 +60,21 @@ function findPassageSource(trace: TraceEntry[], passageId: string): string {
     if (match) return `${match.payload.title} — ${match.payload.source}`;
   }
   return "unknown source";
+}
+
+/**
+ * `lowConfidence` is one boolean for two different reasons (src/generation/writer.ts:
+ * empty context, or missing facts) — say which one it actually was instead of a fixed
+ * string that's wrong whenever facts failed but context was retrieved.
+ */
+function describeLowConfidence(state: FinalState): string {
+  const noContext = state.context.length === 0;
+  const noFacts = state.facts === null;
+
+  if (noContext && noFacts) return "no narrative context, no API facts";
+  if (noFacts) return "no API facts (narrative context only, unverifiable against real numbers)";
+  if (noContext) return "no narrative context, API facts only";
+  return "low confidence";
 }
 
 /**
@@ -118,7 +126,7 @@ export function formatTrace(state: FinalState): string {
         fanOutMs = entry.ms;
         fanOutHeaderIndex = lines.length;
         lines.push(`[${stepNumber}] fan-out (Promise.all)`);
-        lines.push(`    ├── fetch_facts_api    source: fixture    ${formatSeconds(entry.ms)}`);
+        lines.push(`    ├── fetch_facts_api    source: ${entry.facts?.source ?? "unknown"}    ${formatSeconds(entry.ms)}`);
         if (entry.error !== undefined) {
           lines.push(`    │   ERROR: ${entry.error}`);
         } else if (!entry.facts) {
@@ -147,9 +155,7 @@ export function formatTrace(state: FinalState): string {
         } else if (entry.results.length === 0) {
           lines.push("        no passages retrieved");
         } else {
-          lines.push(
-            `        k=${entry.k} over ${entry.collectionSize} points in collection camisa10`,
-          );
+          lines.push(`        k=${entry.k} over ${entry.collectionSize} points in collection ${entry.collection}`);
           entry.results.forEach((result, index) => {
             lines.push(
               `        #${index + 1}  ${result.score.toFixed(3)}  ${result.payload.passageId}  ${result.payload.type}  "${truncate(result.payload.text, 45)}"`,
@@ -185,7 +191,7 @@ export function formatTrace(state: FinalState): string {
   lines.push("");
 
   if (state.answer.lowConfidence) {
-    lines.push("⚠ low confidence: no narrative context, API facts only");
+    lines.push(`⚠ low confidence: ${describeLowConfidence(state)}`);
     lines.push("");
   }
 
@@ -197,9 +203,22 @@ export function formatTrace(state: FinalState): string {
     lines.push("");
   }
 
-  const totalMs = state.trace.reduce((sum, entry) => sum + entry.ms, 0);
+  // fetch_facts_api and search_vector_context run inside the same Promise.allSettled —
+  // summing every entry's ms would double-count that overlap, same mistake the fan-out
+  // header avoided above with Math.max.
+  let totalMs = 0;
+  let totalFanOutMs = 0;
+  for (const entry of state.trace) {
+    if (entry.node === "fetch_facts_api" || entry.node === "search_vector_context") {
+      totalFanOutMs = Math.max(totalFanOutMs, entry.ms);
+    } else {
+      totalMs += entry.ms;
+    }
+  }
+  totalMs += totalFanOutMs;
+
   lines.push(
-    `total: ${formatSeconds(totalMs)} · ${llmCalls} LLM calls · ${embeddingCalls} embedding call${embeddingCalls === 1 ? "" : "s"}`,
+    `total: ${formatSeconds(totalMs)} · ${llmCalls} LLM call${llmCalls === 1 ? "" : "s"} · ${embeddingCalls} embedding call${embeddingCalls === 1 ? "" : "s"}`,
   );
 
   return lines.join("\n");

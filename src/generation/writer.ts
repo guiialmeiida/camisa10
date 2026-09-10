@@ -3,6 +3,7 @@ import { callText } from "../agent/llm.ts";
 import type { FinalState, StateWithData } from "../agent/state.ts";
 import type { Match, Team } from "../sources/index.ts";
 import type { SearchResult } from "../vectorstore/types.ts";
+import { formatMatchDate, teamName } from "./match-format.ts";
 
 export interface Prompt {
   system: string;
@@ -47,10 +48,9 @@ function buildFactsSection(facts: StateWithData["facts"]): string {
 }
 
 function formatMatchLine(match: Match, teams: Team[]): string {
-  const homeName = teams.find((team) => team.id === match.homeTeam)?.name ?? match.homeTeam;
-  const awayName = teams.find((team) => team.id === match.awayTeam)?.name ?? match.awayTeam;
-  const date = new Date(match.date);
-  const formattedDate = `${String(date.getDate()).padStart(2, "0")}/${String(date.getMonth() + 1).padStart(2, "0")}`;
+  const homeName = teamName(match.homeTeam, teams);
+  const awayName = teamName(match.awayTeam, teams);
+  const formattedDate = formatMatchDate(match.date);
 
   if (match.status === "scheduled") {
     return `${homeName} x ${awayName} — agendado — ${formattedDate}`;
@@ -78,12 +78,18 @@ export async function write(state: StateWithData): Promise<FinalState> {
 
   const retrievedIds = new Set(state.context.map((result) => result.payload.passageId));
   const citedPassages = extractCitations(text, retrievedIds);
-  const lowConfidence = state.context.length === 0 || state.facts === null;
+  const lowConfidence = computeLowConfidence(state);
 
   return { ...state, answer: { text, citedPassages, lowConfidence } };
 }
 
-function extractCitations(text: string, retrievedIds: Set<string>): string[] {
+/** Exported separately so both conditions (spec §6) are testable without spending on the API. */
+export function computeLowConfidence(state: Pick<StateWithData, "context" | "facts">): boolean {
+  return state.context.length === 0 || state.facts === null;
+}
+
+/** Exported separately so the discard-invalid-citation behavior (spec §6) is testable without spending on the API. */
+export function extractCitations(text: string, retrievedIds: Set<string>): string[] {
   const cited = new Set<string>();
   for (const match of text.matchAll(/\[([a-zA-Z0-9]+)\]/g)) {
     const id = match[1];
