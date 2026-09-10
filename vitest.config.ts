@@ -1,8 +1,8 @@
 import { defineConfig } from "vitest/config";
 
-// A run padrão (npm test) nunca gasta API nem depende de Docker: os testes de
-// tests/integration/ ficam fora daqui e rodam via `npm run test:integration`
-// (ver vitest.integration.config.ts).
+// The default run (npm test) never spends on API calls or depends on Docker:
+// tests/integration/ is excluded here and runs via `npm run test:integration`
+// (see vitest.integration.config.ts).
 export default defineConfig({
   test: {
     exclude: ["node_modules/**", "tests/integration/**"],

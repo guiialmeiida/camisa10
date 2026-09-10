@@ -1,8 +1,8 @@
 import { defineConfig } from "vitest/config";
 
-// Complemento de vitest.config.ts: Vitest aplica `exclude` antes de qualquer filtro
-// de linha de comando, então `vitest run tests/integration` sozinho não basta para
-// rodar o que o config padrão exclui — daí este segundo config, só para
+// Complements vitest.config.ts: Vitest applies `exclude` before any command-line
+// filter, so `vitest run tests/integration` alone isn't enough to run what the
+// default config excludes — hence this second config, just for
 // `npm run test:integration`.
 export default defineConfig({
   test: {
