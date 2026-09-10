@@ -13,17 +13,22 @@ Os conceitos de RAG por trás de cada peça em [`docs/learning/`](docs/learning/
 nvm use          # Node >= 22.18: o projeto roda .ts sem build
 npm install
 cp .env.example .env
-# preencha as chaves em .env (API_FUTEBOL_TOKEN é opcional até a tarefa 01)
+# preencha as chaves em .env:
+#   FOOTBALL_DATA_TOKEN — obrigatória, gratuita em https://www.football-data.org/client/register
+#   API_FOOTBALL_KEY    — opcional, só enriquece o placar de jogo em andamento
+#   VOYAGE_API_KEY, ANTHROPIC_API_KEY — como antes
 ```
 
 ## Como rodar
 
-A tarefa 00 já entrega o caminho inteiro do RAG com um fixture de dados (3 jogos do
-Brasileirão, inventados — ver `src/sources/fixtures/`), embedding real e Qdrant real:
+Desde a tarefa 01 as fontes são reais: `football-data.org` + `API-Football` para placar/rodada,
+o feed RSS da Gazeta Esportiva para notícia. Ver `docs/tasks/01-data-sources.md` e
+`docs/learning/02-data-sources.md`.
 
 ```bash
 docker compose up -d                                   # sobe o Qdrant local
-npm run index                                           # indexa os passages do fixture
+npm run sources                                         # mostra a fonte real, sem gastar LLM nem tocar o Qdrant
+npm run index                                           # indexa os passages do feed real
 npm run ask -- "o Palmeiras está numa fase ruim?"        # pergunta, com o traço do agente
 npm run ask -- "sua pergunta" --k=8                     # quantos passages recuperar (default 5)
 npm run ask -- "sua pergunta" --no-trace                # só a resposta, sem o traço
@@ -36,9 +41,15 @@ npm test                 # unidade + typecheck — sem rede, sem Docker
 npm run test:integration # recall@k, regra de ouro — precisa de Docker + chaves de API
 ```
 
-`npm run test:integration` ainda precisa de `VOYAGE_API_KEY`/`ANTHROPIC_API_KEY` preenchidas no
-`.env` mesmo em replay (`loadEnv()` exige presença antes de qualquer chamada) — mas não precisam
-ser chaves reais nesse modo, já que nenhuma chamada de rede acontece:
+`npm run test:integration` ainda precisa de `VOYAGE_API_KEY`/`ANTHROPIC_API_KEY`/
+`FOOTBALL_DATA_TOKEN` preenchidas no `.env` mesmo em replay (`loadEnv()` exige presença antes de
+qualquer chamada) — mas `recall.test.ts` e `golden-rule.test.ts` não precisam que nenhuma delas
+seja uma chave real, porque essas duas suítes indexam o fixture (`tests/fixtures/`) numa coleção
+própria (`camisa10-eval`) em vez de dependerem do índice real, e o cassette cobre as chamadas de
+LLM/embedding. A exceção é `tests/integration/live-sources.test.ts`, que fala com a API real e
+**precisa** de um `FOOTBALL_DATA_TOKEN` de verdade — ele é pulado automaticamente só em
+`LLM_CASSETTE=replay` (não há cassette para as APIs de futebol/RSS, ver
+`docs/tasks/01-data-sources.md` §15):
 
 ```bash
 LLM_CASSETTE=record npm run test:integration  # chama Anthropic/Voyage de verdade e grava a resposta
@@ -70,7 +81,7 @@ invisível. Por isso a ordem começa por uma fatia vertical, e não pela base:
 | | Tarefa | O que muda |
 |---|---|---|
 | 00 | `00-vertical-slice.md` | o caminho inteiro do RAG com dados de mentira: fixture, embedding real, Qdrant, agente, CLI |
-| 01 | `01-data-sources.md` | troca o fixture pela API de verdade |
+| 01 | `01-data-sources.md` | troca o fixture pela API de verdade (football-data.org, API-Football, RSS) |
 | 02 | `02-ingestion-pipeline.md` | dedup, tags, cadência |
 | 03 | `03-vector-index.md` | chunking e schema de metadados definitivos |
 | 04 | `04-current-matchweek-query.md` | modo de consulta (paralela com a 05) |

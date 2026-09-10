@@ -7,9 +7,10 @@ servindo de rede.
 ## Status
 - [x] Discovery
 - [x] Refinamento técnico  ← spec aprovada pelo usuário em 2026-09-10, ver nota no início da seção
-- [ ] Implementação
+- [x] Implementação  ← ver seção "Implementação". Pendência: `FOOTBALL_DATA_TOKEN` real (usuário)
 - [ ] Revisão
-- [ ] Testes
+- [x] Testes  ← unidade 76/76; integração: vectorstore 3/3, recall@5 = 0.929, regra de ouro 3/3;
+      `live-sources.test.ts` não verificado (token pendente) — ver "Implementação" e "Testes"
 
 ## Discovery
 
@@ -1034,10 +1035,205 @@ Cinco decisões que não são minhas. A implementação não começa antes delas
    comportamento sempre igual, ao preço de exigir duas chaves para o projeto subir.
 
 ## Implementação
-_A preencher._
+
+Implementado em 2026-09-10 contra a spec da seção "Refinamento técnico", sem reabri-la.
+
+### O que foi criado
+
+Todos os arquivos da seção 16 ("Criar") existem: `src/sources/{competition,teams,http,time,
+football-data,api-football,feeds,rss,facts,passages}.ts` + `src/sources/teams.json`;
+`src/cli/sources.ts`; o dublê de teste movido para `tests/fixtures/{fixture-source.ts,
+fixture-schema.ts,brasileirao-2026-matchweek-12.json}`; os payloads gravados em
+`tests/fixtures/http/{football-data-competition.json,football-data-matchweek.json,
+api-football-live.json,gazeta-feed.xml}`; os testes de unidade
+`tests/sources/{teams,football-data,api-football,rss,facts,time}.test.ts` e
+`tests/ingestion/indexer.test.ts`; o teste de integração `tests/integration/live-sources.test.ts`;
+e `docs/learning/02-data-sources.md`.
+
+### O que foi alterado
+
+`src/sources/{index,types}.ts` (fronteira e tipos de domínio, sem `zod`); `src/vectorstore/
+types.ts` (`matchId` nulável); `src/ingestion/indexer.ts` (matchweek de `facts`, guard de lista
+vazia); `src/agent/nodes/extract-entity.ts` (`listTeams()` + `COMPETITION` no lugar de
+`getFacts({})`); `src/generation/writer.ts` e `src/agent/trace.ts` (`"postponed"` e minuto do
+jogo `live`); `src/config/env.ts`, `.env.example` (`FOOTBALL_DATA_TOKEN`, `API_FOOTBALL_KEY`,
+saída de `API_FUTEBOL_TOKEN`); `package.json` (`fast-xml-parser`, script `"sources"`);
+`README.md` e `docs/learning/README.md`; `tests/setup.test.ts`, `tests/graph.test.ts` (novas
+variáveis); `tests/fixtures-source.test.ts` (renomeado de `tests/sources.test.ts`);
+`tests/integration/{recall,golden-rule}.test.ts` (indexam o fixture eles mesmos, coleção própria
+`camisa10-eval`); `tests/integration/__cassettes__/llm-calls.json` (regravado).
+
+**Apagados**: `src/sources/fixture.ts`, `src/sources/fixture-schema.ts`, `src/sources/fixtures/`
+— movidos para `tests/fixtures/`, não apagados de fato (seção 12 da spec).
+
+### Pendência que bloqueou parte do trabalho: `FOOTBALL_DATA_TOKEN` ausente
+
+O `.env` do usuário não tinha `FOOTBALL_DATA_TOKEN` (só `API_FOOTBAL_KEY`, com o typo que a
+tarefa pedia para corrigir, e `API_FUTEBOL_TOKEN`, da API descartada no discovery). Confirmado
+ao vivo: `curl` sem token contra `/v4/competitions/BSA` devolve `403`. Seguindo a instrução
+explícita de quem me chamou para este caso exato, **parei só a etapa de levantamento de
+`teams.json` contra a API real** e segui implementando o resto contra o schema e payloads
+gravados — não bloqueei a tarefa inteira por uma chave faltando. Duas consequências práticas:
+
+1. **`.env` do usuário**: corrigi `API_FOOTBAL_KEY` → `API_FOOTBALL_KEY` (o valor da chave real
+   do API-Football não mudou) e adicionei `FOOTBALL_DATA_TOKEN=PLACEHOLDER_NEEDS_REAL_TOKEN` —
+   um valor **não-real**, só para `loadEnv()` não lançar e travar tudo (CLI, testes de unidade
+   que usam `fakeEnv`, os dois testes de integração que mockam a fonte). Está marcado em
+   comentário no próprio `.env` como pendência. **O usuário precisa registrar uma chave real em
+   https://www.football-data.org/client/register e substituir esse valor.**
+2. **`tests/fixtures/http/football-data-{competition,matchweek}.json`**: não puderam ser
+   gravados contra a API real. Em vez de inventar um formato adivinhado (proibido pela
+   instrução), usei o payload **literal do exemplo já confirmado na spec aprovada** (seção 6,
+   que registra "confirmado ao vivo" durante o discovery/refinamento), estendido com mais jogos
+   para cobrir os casos de teste da seção 15 (`POSTPONED`, `IN_PLAY`, placar nulo em jogo
+   encerrado, status desconhecido). Isso está documentado dentro do próprio JSON (campo
+   `_fixtureNote`, descartado pelo `z.object` não-estrito no parse). `api-football-live.json` é
+   diferente: **gravado ao vivo de verdade**, com a chave real do usuário (`API_FOOTBALL_KEY`
+   funciona) — só a entrada `league.id: 71` (Brasileirão) foi escrita à mão porque não havia
+   jogo do Brasileirão ao vivo no momento da gravação; o formato inteiro (todos os outros campos)
+   é o confirmado pela chamada real.
+3. **`tests/integration/live-sources.test.ts`**: escrito conforme a spec, mas **não pôde ser
+   confirmado passando** — `getFacts({})` falha com `football-data.org request failed: 400` (o
+   token placeholder é rejeitado). O segundo teste do arquivo (`listPassages`) passa, porque fala
+   só com o RSS, que é real e não depende do token. Isso não é um bug: é o comportamento correto
+   e legível da tabela de erro da seção 6 diante de um token inválido.
+
+### `teams.json`: dados estruturais sem a API real — pendência explícita de revisão
+
+Sem `FOOTBALL_DATA_TOKEN`, não consegui rodar `GET /v4/competitions/BSA/teams` para levantar
+`footballDataId` real. O arquivo tem os ~20 times mais tradicionais da Série A (conhecimento
+geral, não a lista oficial confirmada da temporada 2026 — que depende do resultado do
+rebaixamento/acesso de 2025, fora do meu conhecimento confiável). Para cada time:
+
+- **`id` (slug), `name`, `nicknames`, `aliases`**: preenchidos com conhecimento geral de domínio
+  público (apelidos populares de times brasileiros), como a instrução autorizou.
+- **`footballDataId`**: só dois valores são reais, porque vieram **literalmente da spec aprovada**
+  (seção 5, que registra tê-los confirmado ao vivo no discovery): Palmeiras `1769` e Atlético
+  Mineiro `1766`. Fluminense `1765` também é real — não veio da seção 5, mas do exemplo literal
+  da seção 6 (mesma origem: discovery testado ao vivo). **Os outros 17 times têm
+  `footballDataId` placeholder, na faixa 900001–900020**, deliberadamente fora do intervalo real
+  da API (que fica na casa dos milhares) para não serem confundidos com um id de verdade.
+
+**Isso precisa de revisão do usuário antes de ser considerado definitivo** — tanto a lista de
+apelidos/aliases (curadoria editorial, não minha) quanto, mais importante, os 17
+`footballDataId` placeholder (sem os quais o enriquecimento ao vivo e a resolução de nome por id
+não funcionam para esses times: `teamIdFromFootballData` cai no slug sintético com
+`console.warn`, o que é degradação graciosa, não erro, mas não é o comportamento final
+pretendido). Depois de obter `FOOTBALL_DATA_TOKEN`, rodar:
+
+```bash
+curl -H "X-Auth-Token: $FOOTBALL_DATA_TOKEN" https://api.football-data.org/v4/competitions/BSA/teams
+```
+
+e substituir os 17 valores placeholder pelos `id` reais da resposta.
+
+### Decisões tomadas dentro do espaço que a spec deixou em aberto
+
+- **`season` em `fdMatchSchema` virou opcional**, exatamente como a nota técnica da aprovação da
+  spec pediu para eu verificar. Sem `FOOTBALL_DATA_TOKEN` não dava para confirmar contra a API
+  real se o campo existe na resposta de `/matches` — deixei opcional (`z.object({...}).optional()`)
+  em vez de obrigatório, para não quebrar a primeira chamada real caso o campo realmente não
+  exista lá (o que o próprio texto da nota já suspeitava, já que `mapMatches` nunca o lê).
+- **`mapMatches` recebe `raw: unknown`, não `raw: FootballDataMatches`** como o texto literal da
+  seção 6 diz. Esse tipo nunca é definido em lugar nenhum da spec, e a composição literal da
+  seção 8 (`mapMatches(await fetchMatchweek(matchweek))`) só compila se `mapMatches` aceitar o
+  que `fetchMatchweek` devolve — que a mesma seção 6 tipa como `Promise<unknown>`. Resolvi a
+  favor da composição literal: `mapMatches` valida com `footballDataMatchesSchema` internamente
+  (mesmo padrão de fronteira usado no resto do projeto) e continua "pura" no sentido que importa
+  — sem rede, testável direto contra `JSON.parse(fixture)`.
+- **`parseFeed` sempre devolve `teams: []`, e quem tagueia é `listPassages`, não `parseFeed`**.
+  A spec declara `parseFeed` como síncrona ("Puro: XML cru -> passages"), mas `tagTeams` é
+  assíncrona (lê `teams.json` do disco). Não dá para uma função síncrona chamar `await
+  tagTeams(...)` como a tabela de mapeamento da seção 9 sugere linha a linha. Resolvido mantendo
+  `parseFeed` síncrona e testável sem I/O (o que a spec pede explicitamente), e movendo a
+  tagueação para `listPassages()` — que já é assíncrona e já é o lugar que agrega passages de
+  todos os feeds antes de dedup/ordenar, então tagueá-los ali é uma etapa a mais no mesmo
+  agregador, não um módulo novo.
+- **Item sem time reconhecido: descartado**, decisão 2 já aprovada — implementado como um
+  `.filter((passage) => passage.teams.length > 0)` em `listPassages()`, depois da tagueação.
+- **`http.ts` expõe duas classes de erro (`HttpStatusError`, `HttpTimeoutError`) em vez de uma
+  mensagem já formatada.** A spec só descreve o *resultado* esperado de cada fonte (a tabela de
+  erro da seção 6, específica do football-data.org). Como `http.ts` é compartilhado pelas três
+  fontes e cada uma precisa de uma mensagem diferente para o mesmo status (429 e 403 só fazem
+  sentido nomeando "football-data.org"; a API-Football nunca lança), fazia mais sentido o módulo
+  compartilhado expor o dado estruturado (status, headers, method, path) e cada cliente compor a
+  frase certa — em vez de `http.ts` adivinhar de qual fonte veio a chamada.
+- **`golden-rule.test.ts` ganhou uma pausa de 20s entre as 3 chamadas a `answer()` quando não há
+  `LLM_CASSETTE`.** Não estava na spec. Descoberto depurando uma falha "invalid setup" que se
+  repetia sempre na 3ª chamada, nunca na 1ª ou 2ª — nada a ver com o score do p07 estar perto do
+  corte (o que a tarefa 00 documentou como a causa da variância *antiga*). Instrumentei a saída
+  do `context` de cada run e vi: `run 3 context=[]` — busca vazia, não busca com score baixo. A
+  causa real: esta tarefa passou a indexar o fixture na própria suíte (`indexPassages()` no
+  `beforeAll`, decisão 2 da seção 12), somando **uma chamada de embedding a mais** por execução
+  do arquivo. Isso empurra o total para 4 chamadas Voyage num minuto (index + 3 buscas), acima do
+  limite de 3 req/min do tier gratuito sem cartão — o `runFanOut` com `Promise.allSettled` (spec
+  §6) converte esse 429 em `context: []` silencioso em vez de propagar o erro, então o sintoma
+  não parecia rate limit. A pausa evita isso numa execução real; é pulada quando `LLM_CASSETTE`
+  está definido (replay não bate na API de verdade, e o cassette já foi gravado espaçando as
+  chamadas manualmente).
+- **`beforeAll` de `recall.test.ts` e `golden-rule.test.ts` ganhou timeout explícito de 30s.** O
+  default do Vitest (alguns segundos) não é suficiente agora que o `beforeAll` também indexa o
+  fixture (`embedAll` + `ensureCollection` + `insertPoints`), não só mede/consulta.
+
+### Onde a implementação não seguiu a spec ao pé da letra, e por quê
+
+Além dos dois pontos de resolução de ambiguidade acima (`mapMatches`, `parseFeed`/`tagTeams`),
+que considero preencher lacunas e não desvios de comportamento pretendido: nenhum outro desvio
+consciente. A regra de ouro na fronteira (`getFacts` só fala com as duas APIs de fato,
+`listPassages` só com o RSS) está testada e de pé (`tests/sources/facts.test.ts`, caso de
+isolamento de fonte).
+
+### O que foi visto e não foi feito, por estar fora de escopo
+
+Nada além do que a seção 17 já lista. Não toquei em `standings`, cadência/cache, deduplicação
+entre execuções, outras competições, nem `tsconfig.json`. Não criei um segundo feed RSS (ponto
+em aberto 1, adiado pela aprovação). Não busquei corpo completo de matéria nem fiz scraping.
+
+### Testes
+
+**Unidade** (`npm test`, sem rede/Docker): `tsc --noEmit` limpo, seguido de `vitest run` —
+**76 testes, 13 arquivos, todos passando** (eram 32 depois da revisão da tarefa 00; a diferença
+são os 6 arquivos novos em `tests/sources/` + `tests/ingestion/indexer.test.ts` + os testes de
+compilação de `tests/setup.test.ts`).
+
+**Integração** (`npm run test:integration`, Qdrant real via `docker compose up -d`):
+
+- `tests/integration/vectorstore.test.ts` — **3/3 passando**, sem mudança de comportamento.
+- `tests/integration/recall.test.ts` — **2/2 passando**. `recall@5 = 0.929`, idêntico ao número
+  da tarefa 00 (fixture e modelo de embedding não mudaram, só onde/quando a coleção é montada) —
+  confirma que mover a indexação para dentro do teste (decisão 2 da seção 12) não regrediu
+  retrieval. O único miss continua sendo `e01` (apelido "alviverde" sem o nome do time), o mesmo
+  caso adversarial já registrado na tarefa 00.
+- `tests/integration/golden-rule.test.ts` — **passou, 3/3 execuções**, depois do ajuste de
+  pausa descrito acima (sem ele, falhava de forma consistente na 3ª chamada por rate limit da
+  Voyage, não por variância de retrieval).
+- `tests/integration/live-sources.test.ts` — **não pôde ser confirmado passando**:
+  `getFacts` falha (token placeholder rejeitado, `400`); `listPassages` passa (RSS real, 50
+  itens brutos no feed gravado). Ver a seção de pendência acima.
+
+**`LLM_CASSETTE`**: regravado por completo (`LLM_CASSETTE=record`), porque o prompt do
+`extractEntity` mudou (usa `listTeams()`/`COMPETITION` em vez de `getFacts({})`). Seguido o
+cuidado documentado na tarefa 00: cada tentativa de gravação foi feita **backup → tentativa → se
+falhar (rate limit ou "invalid setup"), restaurar o backup e tentar de novo**, nunca gravando em
+cima de uma tentativa parcial. `golden-rule.test.ts` e `recall.test.ts` foram gravados em
+execuções separadas, espaçadas, para não competir pelo limite de 3 req/min da Voyage.
+`LLM_CASSETTE=replay npm run test:integration` roda a suíte inteira (exceto `live-sources.test.ts`,
+pulado por `describe.skipIf`) em **~1.2s**, 6 testes passando, 2 pulados. O arquivo
+`tests/integration/__cassettes__/llm-calls.json` continua só com o header `content-type`
+sobrevivendo à allowlist (confirmado por script depois da gravação).
+
+`npm run sources` foi verificado sem `FOOTBALL_DATA_TOKEN` real: falha com a mensagem clara do
+`loadEnv()` e código de saída 1 — não pôde ser verificado mostrando dado real, pela mesma
+pendência de chave.
 
 ## Revisão
-_A preencher._
+_A preencher — decisão do usuário, fora desta implementação._
 
 ## Testes
-_A preencher._
+Além dos testes de unidade dos nós, dois que valem para o projeto inteiro (ver seção
+"Implementação" acima para o resultado real):
+
+- **`recall@k` no conjunto de avaliação** — a pergunta recupera o trecho que deveria?
+  `recall@5 = 0.929`, medido contra o fixture indexado numa coleção própria (`camisa10-eval`).
+- **Invariante da regra de ouro** — nenhum número na resposta final sem lastro nos fatos da API.
+  3/3 execuções reais, mais o isolamento de fonte testado em `tests/sources/facts.test.ts`.
