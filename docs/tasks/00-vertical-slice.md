@@ -1403,9 +1403,13 @@ limit de 3 req/min. `tests/integration/support/llm-cassette.ts` intercepta `fetc
 O Qdrant local nunca é cacheado (já é grátis e rápido).
 
 O arquivo `tests/integration/__cassettes__/llm-calls.json` **está commitado no repo** — só tem
-prompts e respostas sobre o fixture fictício, nenhum segredo — então `LLM_CASSETTE=replay`
-funciona pra qualquer pessoa que clonar o repo, sem precisar de chave de API nenhuma, até que
-os prompts mudem e ele precise ser regravado.
+prompts e respostas sobre o fixture fictício, e os headers gravados são filtrados por
+allowlist (só `content-type` sobrevive; ver correção da revisão abaixo). `LLM_CASSETTE=replay`
+funciona pra qualquer pessoa que clonar o repo **sem gastar crédito**, até que os prompts mudem
+e o cassette precise ser regravado — mas ainda precisa de `VOYAGE_API_KEY`/`ANTHROPIC_API_KEY`
+preenchidas (mesmo com valor fictício) no `.env`, porque `loadEnv()` exige a presença das duas
+antes de qualquer chamada acontecer, replay incluso. A afirmação original aqui ("sem precisar de
+chave de API nenhuma") estava errada — o `revisor` pegou isso.
 
 **Cuidado ao regravar**: como o replay consome as entradas na ordem em que foram gravadas, uma
 tentativa de gravação que inclui uma resposta de rate limit ou uma rodada de `golden-rule.test.ts`
@@ -1416,7 +1420,82 @@ ciclo de backup → tentativa → se falhar, restaurar o backup e tentar de novo
 rodar `LLM_CASSETTE=record` em cima de um cassette que já tem uma tentativa mal-sucedida.
 
 ## Revisão
-_A preencher._
+
+Revisão retroativa rodada em 2026-09-10 (o PR #1 já tinha sido mergeado antes de o `revisor`
+rodar — comentário em
+[github.com/guiialmeiida/camisa10/pull/1#pullrequestreview-5166834936](https://github.com/guiialmeiida/camisa10/pull/1#pullrequestreview-5166834936)).
+Confirmou a regra de ouro de pé (nenhum caminho de código leva um número do índice vetorial até
+a resposta) e achou 13 problemas reais, por severidade. Corrigidos numa branch `fix/`:
+
+1. **Vazamento de identificadores da conta no cassette commitado.** `llm-cassette.ts` gravava
+   headers de resposta por blocklist (excluindo só `content-encoding`/`content-length`/
+   `transfer-encoding`); isso deixou `anthropic-organization-id`, `anthropic-workspace-id`,
+   `request-id`/`cf-ray` e um header de billing da Voyage versionados num repo público.
+   Corrigido para **allowlist**: só `content-type` sobrevive (é o único que o SDK precisa pra
+   parsear a resposta em replay). O `llm-calls.json` já commitado foi reescrito removendo os
+   headers de fora da allowlist.
+2. **Data do jogo dependia do fuso da máquina.** `writer.ts` e `trace.ts` usavam
+   `new Date(iso).getDate()/.getMonth()` — hora local do host, não do fixture (offset
+   `-03:00`). Reproduzido: mesmo `Facts`, `TZ=America/Sao_Paulo` → `05/09`, `TZ=UTC` → `06/09`.
+   Corrigido com `src/generation/match-format.ts` (novo, compartilhado entre os dois arquivos):
+   lê dia/mês/hora/minuto direto da string ISO por regex, em vez de construir um `Date` e ler
+   getters locais — determinístico, independente de onde o processo roda.
+3. **Aviso de baixa confiança com string fixa errada.** Dizia sempre "no narrative context, API
+   facts only", mesmo quando o problema real era `facts: null` (o inverso). Corrigido com
+   `describeLowConfidence`, que diferencia as duas causas (`context: []` vs `facts: null` vs
+   as duas).
+4. **`write()` e o fan-out sem teste nenhum.** `extractCitations` e o cálculo de
+   `lowConfidence` (agora `computeLowConfidence`) foram exportados de `writer.ts` e ganharam
+   testes próprios em `tests/writer.test.ts` (descarte de citação inválida, dedupe, os três
+   casos de `lowConfidence`). `runFanOut` foi exportado de `graph.ts` e ganhou
+   `tests/graph.test.ts` (novo), mockando `getFacts`/`searchContext`/`countPoints` para provar
+   a resiliência do `Promise.allSettled` da spec §6 sem gastar API.
+5. **`LLM_CASSETTE` não documentada fora do arquivo da tarefa.** Adicionada como linha comentada
+   no `.env.example` (não entra no schema `zod` de `env.ts` — é variável só de teste, nunca lida
+   via `loadEnv()`, e colocá-la lá misturaria config de runtime com toggle de teste) e uma seção
+   no `README.md` § "Rodar os testes".
+6. **Afirmação errada de que replay não precisa de nenhuma chave de API.** `loadEnv()` exige
+   `VOYAGE_API_KEY`/`ANTHROPIC_API_KEY` presentes (mesmo que fictícias) antes de qualquer
+   `fetch`, replay incluso. Corrigido o texto acima e no README: o benefício real é **não
+   gastar crédito**, não "não precisar de chave".
+7. **Replay do golden-rule é amostra por sobrevivência, sem aviso.** Adicionado um
+   `console.warn` no `llm-cassette.ts` quando `LLM_CASSETTE=replay`, explicando que replay
+   valida regressão de código, não reprova o invariante contra uma geração nova.
+8. **Timeout/retry do commit `f92caa4` não estava registrado aqui.** Registrando agora: o
+   cliente Anthropic (`src/agent/llm.ts`) e a chamada `fetch` da Voyage (`src/ingestion/embed.ts`)
+   ganharam timeout de 30s (`maxRetries: 1` no Anthropic) depois que uma tentativa de gravação
+   do cassette travou ~990s no default do SDK (10min, com retry). `extractEntity`, `plan` e
+   `write` continuam sem `try/catch` próprio (só o fan-out usa `allSettled`) — um timeout num
+   desses três nós ainda derruba `answer()` e a CLI sai com código 1. Não estendido: seria
+   mudar a política de resiliência do graph além do que a spec pediu (só o fan-out), e isso é
+   território da tarefa 06 (grader/crítico), não desta correção.
+9. **Trace mentia sobre coleção e procedência.** `collection camisa10` e `source: fixture`
+   estavam hardcoded em `trace.ts`. `TraceEntry` (nó `search_vector_context`) ganhou um campo
+   `collection: string`, preenchido em `graph.ts` a partir de `loadEnv().QDRANT_COLLECTION`; a
+   linha de `source` agora lê `entry.facts?.source ?? "unknown"`.
+10. **`total` do trace somava tempo que rodou em paralelo.** Corrigido para tratar
+    `fetch_facts_api`/`search_vector_context` como uma única janela de tempo (`Math.max`, igual
+    ao cabeçalho do fan-out já fazia), não uma soma.
+11. **CLI validava só `NaN`.** `--k=0`, `--k=-3` e `--k=8abc` passavam (o último virava `8`
+    silenciosamente). Corrigido com checagem de regex (`/^\d+$/`) mais `>= 1`.
+12. **`process.exit(0)` podia truncar stdout em pipe.** Trocado por `process.exitCode` + retorno
+    natural da função, deixando o Node drenar o stdout sozinho.
+13. **Comentários em português em arquivo de código.** `vitest.config.ts`,
+    `vitest.integration.config.ts` e `qdrant.ts` tinham comentários (ou citações dentro de
+    comentários) em português — contra a regra sem exceção do `CLAUDE.md`. Traduzidos.
+
+Nits também corrigidos: `axios` removido do `package.json` (dependência órfã, zero imports);
+`recall.test.ts` passou a medir `recall@5` uma vez só (`beforeAll`) para os dois casos, em vez
+de duas medições completas idênticas.
+
+Nits **não** corrigidos, por decisão consciente: o ciclo de vida diferente entre `getClient()`
+(cacheia a URL) e `getCollectionName()` (relê o env a cada chamada) em `qdrant.ts` — funciona e
+`vectorstore.test.ts` depende disso pra trocar de coleção; e a dependência bidirecional entre
+`src/agent` e `src/generation` — foi a spec que colocou `llm.ts` sob `src/agent/`, e vale mover
+quando a tarefa 06 acrescentar grader e crítico, que também vão precisar dele.
+
+`npm test` (32 testes, era 18) e `npm run test:integration` (com `LLM_CASSETTE=replay`)
+continuam verdes depois de todas as correções acima.
 
 ## Testes
 
