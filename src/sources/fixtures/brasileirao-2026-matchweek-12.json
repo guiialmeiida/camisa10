@@ -1,0 +1,201 @@
+{
+  "_warning": "FIXTURE. Times reais, placares e notícias INVENTADOS. Não é resultado real.",
+  "competition": { "id": "brasileirao-serie-a", "name": "Brasileirão Série A", "season": 2026 },
+  "matchweek": 12,
+  "teams": [
+    { "id": "palmeiras",   "name": "Palmeiras",   "nicknames": ["Verdão", "alviverde"] },
+    { "id": "fluminense",  "name": "Fluminense",  "nicknames": ["Tricolor das Laranjeiras", "Flu"] },
+    { "id": "corinthians", "name": "Corinthians", "nicknames": ["Timão"] },
+    { "id": "bahia",       "name": "Bahia",       "nicknames": ["Tricolor de Aço", "Esquadrão"] },
+    { "id": "cruzeiro",    "name": "Cruzeiro",    "nicknames": ["Raposa"] },
+    { "id": "gremio",      "name": "Grêmio",      "nicknames": ["Imortal", "Tricolor Gaúcho"] }
+  ],
+  "matches": [
+    {
+      "id": "m1",
+      "matchweek": 12,
+      "date": "2026-09-05T21:30:00-03:00",
+      "status": "finished",
+      "homeTeam": "palmeiras",
+      "awayTeam": "fluminense",
+      "score": { "home": 1, "away": 3 },
+      "venue": "Allianz Parque"
+    },
+    {
+      "id": "m2",
+      "matchweek": 12,
+      "date": "2026-09-06T16:00:00-03:00",
+      "status": "finished",
+      "homeTeam": "corinthians",
+      "awayTeam": "bahia",
+      "score": { "home": 0, "away": 0 },
+      "venue": "Neo Química Arena"
+    },
+    {
+      "id": "m3",
+      "matchweek": 12,
+      "date": "2026-09-09T19:00:00-03:00",
+      "status": "scheduled",
+      "homeTeam": "cruzeiro",
+      "awayTeam": "gremio",
+      "score": null,
+      "venue": "Mineirão"
+    }
+  ],
+  "passages": [
+    {
+      "id": "p01",
+      "matchId": "m1",
+      "teams": ["palmeiras"],
+      "type": "preview",
+      "title": "Palmeiras escala time reserva para enfrentar o Fluminense",
+      "source": "Fixture Esportivo",
+      "url": "https://exemplo.invalido/fixture/p01",
+      "publishedAt": "2026-09-04T09:00:00-03:00",
+      "text": "Com a semana cheia de jogos, o técnico do Palmeiras deve poupar titulares e escalar um time misto para o duelo contra o Fluminense no Allianz Parque, priorizando compromissos futuros pela competição continental."
+    },
+    {
+      "id": "p02",
+      "matchId": "m1",
+      "teams": ["palmeiras"],
+      "type": "article",
+      "title": "Zagueiro do Palmeiras deixa o jogo lesionado",
+      "source": "Fixture Esportivo",
+      "url": "https://exemplo.invalido/fixture/p02",
+      "publishedAt": "2026-09-05T23:10:00-03:00",
+      "text": "O zagueiro titular do Palmeiras sentiu dores na coxa ainda no primeiro tempo e precisou deixar o campo. O departamento médico do clube avalia a gravidade da lesão nos próximos dias."
+    },
+    {
+      "id": "p03",
+      "matchId": "m1",
+      "teams": ["palmeiras"],
+      "type": "article",
+      "title": "Alviverde tropeça de novo em casa",
+      "source": "Fixture Esportivo",
+      "url": "https://exemplo.invalido/fixture/p03",
+      "publishedAt": "2026-09-06T08:00:00-03:00",
+      "text": "Foi a terceira derrota seguida do alviverde jogando em casa. O time saiu de campo vaiado e a torcida cobrou o técnico no gramado."
+    },
+    {
+      "id": "p04",
+      "matchId": "m1",
+      "teams": ["fluminense"],
+      "type": "article",
+      "title": "Fluminense embala sequência positiva fora de casa",
+      "source": "Fixture Esportivo",
+      "url": "https://exemplo.invalido/fixture/p04",
+      "publishedAt": "2026-09-06T08:30:00-03:00",
+      "text": "O Fluminense segue confiante longe das Laranjeiras: o time comandado pelo técnico carioca não perde há algumas rodadas atuando fora de casa e volta motivado para os próximos compromissos da competição."
+    },
+    {
+      "id": "p05",
+      "matchId": "m1",
+      "teams": ["palmeiras", "fluminense"],
+      "type": "chronicle",
+      "title": "Como foi Palmeiras x Fluminense",
+      "source": "Fixture Esportivo",
+      "url": "https://exemplo.invalido/fixture/p05",
+      "publishedAt": "2026-09-06T00:30:00-03:00",
+      "text": "O Allianz Parque viu o Fluminense sair na frente ainda na etapa inicial e ampliar a vantagem na segunda etapa, enquanto o Palmeiras diminuiu perto do apito final sem conseguir evitar a derrota em casa."
+    },
+    {
+      "id": "p06",
+      "matchId": "m1",
+      "teams": ["palmeiras"],
+      "type": "article",
+      "title": "Técnico assume responsabilidade",
+      "source": "Fixture Esportivo",
+      "url": "https://exemplo.invalido/fixture/p06",
+      "publishedAt": "2026-09-06T09:00:00-03:00",
+      "text": "Em coletiva após a partida, o técnico do Palmeiras admitiu que o time perdeu a confiança dentro de campo e prometeu mudanças no time titular para a próxima rodada."
+    },
+    {
+      "id": "p07",
+      "matchId": "m1",
+      "teams": ["palmeiras", "fluminense"],
+      "type": "chronicle",
+      "title": "Crônica: um duelo movimentado no Allianz Parque",
+      "source": "Fixture Esportivo",
+      "url": "https://exemplo.invalido/fixture/p07",
+      "publishedAt": "2026-09-06T10:00:00-03:00",
+      "text": "Em uma tarde movimentada no Allianz Parque, o alviverde venceu por dois a zero em casa e manteve a boa fase diante do Fluminense, que teve dificuldades para levar perigo ao gol adversário durante a maior parte da partida."
+    },
+    {
+      "id": "p08",
+      "matchId": "m2",
+      "teams": ["corinthians"],
+      "type": "preview",
+      "title": "Corinthians define escalação para enfrentar o Bahia",
+      "source": "Fixture Esportivo",
+      "url": "https://exemplo.invalido/fixture/p08",
+      "publishedAt": "2026-09-05T09:00:00-03:00",
+      "text": "O técnico do Corinthians confirmou a escalação para o duelo contra o Bahia na Neo Química Arena, mantendo a base que vem sendo utilizada nas últimas rodadas do time timão."
+    },
+    {
+      "id": "p09",
+      "matchId": "m2",
+      "teams": ["bahia"],
+      "type": "article",
+      "title": "Tricolor de aço não sai do zero nos últimos jogos",
+      "source": "Fixture Esportivo",
+      "url": "https://exemplo.invalido/fixture/p09",
+      "publishedAt": "2026-09-06T18:00:00-03:00",
+      "text": "O tricolor de aço empatou de novo fora de casa e segue sem vencer há algumas rodadas, o que aumenta a pressão sobre a comissão técnica do Bahia junto à torcida do Esquadrão."
+    },
+    {
+      "id": "p10",
+      "matchId": "m2",
+      "teams": ["corinthians", "bahia"],
+      "type": "chronicle",
+      "title": "Corinthians e Bahia não saem do zero na Neo Química Arena",
+      "source": "Fixture Esportivo",
+      "url": "https://exemplo.invalido/fixture/p10",
+      "publishedAt": "2026-09-06T18:30:00-03:00",
+      "text": "O confronto entre Corinthians e Bahia na Neo Química Arena terminou sem gols, num jogo truncado em que as duas defesas levaram a melhor sobre os ataques adversários durante os noventa minutos."
+    },
+    {
+      "id": "p11",
+      "matchId": "m3",
+      "teams": ["cruzeiro"],
+      "type": "preview",
+      "title": "Cruzeiro se prepara para enfrentar o Grêmio no Mineirão",
+      "source": "Fixture Esportivo",
+      "url": "https://exemplo.invalido/fixture/p11",
+      "publishedAt": "2026-09-07T09:00:00-03:00",
+      "text": "Antes do duelo contra o Grêmio, o técnico do Cruzeiro afirmou que o time chega motivado e sem desfalques por lesão para o confronto no Mineirão pela rodada."
+    },
+    {
+      "id": "p12",
+      "matchId": "m3",
+      "teams": ["gremio"],
+      "type": "article",
+      "title": "Goleiro do Grêmio é dúvida para pegar o Cruzeiro",
+      "source": "Fixture Esportivo",
+      "url": "https://exemplo.invalido/fixture/p12",
+      "publishedAt": "2026-09-08T12:00:00-03:00",
+      "text": "O goleiro titular do Grêmio sentiu um desconforto muscular durante o treino desta semana e é dúvida para o duelo contra o Cruzeiro pela rodada, segundo o departamento médico do clube."
+    },
+    {
+      "id": "p13",
+      "matchId": "m3",
+      "teams": ["cruzeiro"],
+      "type": "article",
+      "title": "Raposa mantém retrospecto positivo como mandante",
+      "source": "Fixture Esportivo",
+      "url": "https://exemplo.invalido/fixture/p13",
+      "publishedAt": "2026-09-08T15:00:00-03:00",
+      "text": "A raposa segue invicta em casa nesta temporada e chega embalada para o confronto contra o Grêmio, criando expectativa positiva entre os torcedores antes da bola rolar no Mineirão."
+    },
+    {
+      "id": "p14",
+      "matchId": "m1",
+      "teams": ["fluminense"],
+      "type": "article",
+      "title": "Tricolor não perde há três rodadas fora de casa",
+      "source": "Fixture Esportivo",
+      "url": "https://exemplo.invalido/fixture/p14",
+      "publishedAt": "2026-09-06T08:15:00-03:00",
+      "text": "Foi a terceira vitória seguida do tricolor fora de casa. O time comandado pelo técnico carioca segue confiante para as próximas rodadas da competição."
+    }
+  ]
+}

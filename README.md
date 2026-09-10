@@ -13,14 +13,27 @@ Os conceitos de RAG por trás de cada peça em [`docs/learning/`](docs/learning/
 nvm use          # Node >= 22.18: o projeto roda .ts sem build
 npm install
 cp .env.example .env
-# preencha as chaves em .env
-npm run dev
+# preencha as chaves em .env (API_FUTEBOL_TOKEN é opcional até a tarefa 01)
+```
+
+## Como rodar
+
+A tarefa 00 já entrega o caminho inteiro do RAG com um fixture de dados (3 jogos do
+Brasileirão, inventados — ver `src/sources/fixtures/`), embedding real e Qdrant real:
+
+```bash
+docker compose up -d                                   # sobe o Qdrant local
+npm run index                                           # indexa os passages do fixture
+npm run ask -- "o Palmeiras está numa fase ruim?"        # pergunta, com o traço do agente
+npm run ask -- "sua pergunta" --k=8                     # quantos passages recuperar (default 5)
+npm run ask -- "sua pergunta" --no-trace                # só a resposta, sem o traço
 ```
 
 Rodar os testes:
 
 ```bash
-npm test
+npm test                 # unidade + typecheck — sem rede, sem Docker
+npm run test:integration # recall@k, regra de ouro — precisa de Docker + chaves de API
 ```
 
 ## Estrutura

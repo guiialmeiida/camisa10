@@ -12,6 +12,9 @@ coverage/
 *.log
 *.tsbuildinfo
 
+# dados locais do Qdrant (docker-compose.yml)
+.qdrant/
+
 # config local do Claude Code (pode conter caminhos e permissões da máquina)
 .claude/settings.local.json
 

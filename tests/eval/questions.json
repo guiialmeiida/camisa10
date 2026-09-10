@@ -1,0 +1,107 @@
+[
+  {
+    "id": "e01",
+    "question": "o Palmeiras está numa fase ruim?",
+    "mode": "team_form",
+    "expectedPassages": ["p03"],
+    "why": "apelido 'alviverde' sem o nome do time — o caso que BM25 perde"
+  },
+  {
+    "id": "e02",
+    "question": "como o Fluminense vem jogando fora de casa?",
+    "mode": "team_form",
+    "expectedPassages": ["p04", "p14"],
+    "why": "p14 é quase idêntico ao p03; separar os dois é o ponto"
+  },
+  {
+    "id": "e03",
+    "question": "qual foi a escalação do Palmeiras para o jogo contra o Fluminense?",
+    "mode": "current_matchweek",
+    "expectedPassages": ["p01"],
+    "why": "escalação é assunto diferente de fase — retrieval não pode devolver p03 por engano"
+  },
+  {
+    "id": "e04",
+    "question": "o Palmeiras teve algum desfalque por lesão?",
+    "mode": "team_form",
+    "expectedPassages": ["p02"],
+    "why": "lesão é um terceiro assunto sobre o mesmo time, distinto de fase e escalação"
+  },
+  {
+    "id": "e05",
+    "question": "o que aconteceu no jogo entre Palmeiras e Fluminense?",
+    "mode": "current_matchweek",
+    "expectedPassages": ["p05"],
+    "why": "crônica do jogo sem número nenhum — testa retrieval por narrativa pura"
+  },
+  {
+    "id": "e06",
+    "question": "o que o técnico do Palmeiras disse depois da derrota?",
+    "mode": "team_form",
+    "expectedPassages": ["p06"],
+    "why": "declaração do técnico — quarto assunto distinto sobre o mesmo time"
+  },
+  {
+    "id": "e07",
+    "question": "qual foi a escalação do Corinthians contra o Bahia?",
+    "mode": "current_matchweek",
+    "expectedPassages": ["p08"],
+    "why": "escalação do Corinthians, mesmo padrão de p01 em outro jogo"
+  },
+  {
+    "id": "e08",
+    "question": "como o tricolor de aço está de fase?",
+    "mode": "team_form",
+    "expectedPassages": ["p09"],
+    "why": "apelido 'tricolor de aço' do Bahia — ambíguo com o 'tricolor' de p14"
+  },
+  {
+    "id": "e09",
+    "question": "o que aconteceu no jogo entre Corinthians e Bahia?",
+    "mode": "current_matchweek",
+    "expectedPassages": ["p10"],
+    "why": "crônica do 0 x 0 — mesmo padrão de e05 para outro jogo"
+  },
+  {
+    "id": "e10",
+    "question": "o que esperar do jogo entre Cruzeiro e Grêmio?",
+    "mode": "current_matchweek",
+    "expectedPassages": ["p11"],
+    "why": "preview de um jogo que ainda não aconteceu"
+  },
+  {
+    "id": "e11",
+    "question": "o Grêmio tem algum desfalque para a próxima rodada?",
+    "mode": "team_form",
+    "expectedPassages": ["p12"],
+    "why": "lesão do goleiro do Grêmio, num jogo que ainda não aconteceu"
+  },
+  {
+    "id": "e12",
+    "question": "como a raposa está jogando em casa?",
+    "mode": "team_form",
+    "expectedPassages": ["p13"],
+    "why": "apelido 'raposa' do Cruzeiro sem o nome do time"
+  },
+  {
+    "id": "e13",
+    "question": "o timão está escalado para o jogo desta rodada?",
+    "mode": "current_matchweek",
+    "expectedPassages": ["p08"],
+    "why": "apelido 'Timão' do Corinthians deve recuperar o mesmo passage do nome do time"
+  },
+  {
+    "id": "e14",
+    "question": "como o Santos está de fase?",
+    "mode": "team_form",
+    "expectedPassages": [],
+    "why": "Santos não está no fixture — controla que a busca nunca diz 'não sei' e sempre devolve k"
+  },
+  {
+    "id": "e15",
+    "question": "quem venceu o clássico entre Palmeiras e Fluminense?",
+    "mode": "current_matchweek",
+    "expectedPassages": ["p07"],
+    "why": "a armadilha: só o texto por extenso do placar errado 'responde' quem venceu — o golden-rule test garante que o número não vaza"
+  }
+]
