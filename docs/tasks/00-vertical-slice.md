@@ -10,9 +10,9 @@ fatia por uma peça real, com o conjunto de avaliação daqui servindo de rede.
 ## Status
 - [x] Discovery
 - [x] Refinamento técnico
-- [x] Implementação  ← ver seção "Implementação"; recall@5 e regra de ouro ainda não medidos (sem chaves de API no ambiente)
+- [x] Implementação  ← ver seção "Implementação"
 - [ ] Revisão
-- [ ] Testes
+- [x] Testes  ← recall@5 = 0.929, regra de ouro 3/3 — ver seção "Implementação" e "Testes"
 
 ## Discovery
 
