@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildPrompt } from "../src/generation/writer.ts";
+import { buildPrompt, computeLowConfidence, extractCitations } from "../src/generation/writer.ts";
 import type { StateWithData } from "../src/agent/state.ts";
 
 function buildState(overrides: Partial<StateWithData> = {}): StateWithData {
@@ -100,5 +100,38 @@ describe("buildPrompt", () => {
     const prompt = buildPrompt(buildState({ facts: null }));
 
     expect(prompt.user).toContain("a chamada à API de fatos falhou");
+  });
+});
+
+describe("extractCitations", () => {
+  it("discards a citation to a passage that wasn't retrieved (spec §6)", () => {
+    const retrievedIds = new Set(["p03"]);
+
+    expect(extractCitations("resposta [p03] e também [p99]", retrievedIds)).toEqual(["p03"]);
+  });
+
+  it("dedupes repeated citations to the same passage", () => {
+    const retrievedIds = new Set(["p03"]);
+
+    expect(extractCitations("[p03] ... de novo [p03]", retrievedIds)).toEqual(["p03"]);
+  });
+
+  it("returns an empty list when nothing is cited", () => {
+    expect(extractCitations("resposta sem citação nenhuma", new Set(["p03"]))).toEqual([]);
+  });
+});
+
+describe("computeLowConfidence", () => {
+  it("is true when context is empty, even with facts present", () => {
+    expect(computeLowConfidence({ context: [], facts: buildState().facts })).toBe(true);
+  });
+
+  it("is true when facts is null, even with context present", () => {
+    expect(computeLowConfidence({ context: buildState().context, facts: null })).toBe(true);
+  });
+
+  it("is false when both facts and context are present", () => {
+    const state = buildState();
+    expect(computeLowConfidence({ context: state.context, facts: state.facts })).toBe(false);
   });
 });
