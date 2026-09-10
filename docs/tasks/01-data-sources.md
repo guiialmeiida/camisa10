@@ -1038,6 +1038,41 @@ Cinco decisões que não são minhas. A implementação não começa antes delas
 
 Implementado em 2026-09-10 contra a spec da seção "Refinamento técnico", sem reabri-la.
 
+### Adendo pós-implementação: `FOOTBALL_DATA_TOKEN` real, `teams.json` corrigido
+
+O usuário obteve uma chave real do football-data.org depois da implementação inicial (que tinha
+ficado bloqueada nesse ponto — ver "Pendência" abaixo). Com ela:
+
+- **`GET /v4/competitions/BSA/teams` rodado de verdade.** Confirmou `footballDataId` para os 20
+  times, e revelou que **4 dos times "tradicionais" que eu tinha colocado por conhecimento geral
+  não estão na Série A real da temporada 2026**: Fortaleza, Juventude, Ceará e Sport Recife.
+  Substituídos por quem realmente está no elenco da competição: Athletico Paranaense, Chapecoense,
+  Coritiba e Clube do Remo. Os outros 13 times tiveram o `footballDataId` placeholder (faixa
+  900001–900020) trocado pelo id real. `teams.json` agora tem os 20 `footballDataId` corretos;
+  `nicknames`/`aliases` continuam sendo conhecimento geral meu, ainda sem revisão editorial do
+  usuário (a curadoria de apelido segue pendente, é decisão dele por natureza).
+- **`live-sources.test.ts` roda de verdade agora**: `getFacts` e `listPassages` passam os dois,
+  contra a API real.
+- **`golden-rule.test.ts` confirmado, 3/3, com token real** de ponta a ponta (football-data.org +
+  Voyage + Anthropic).
+- **Achado durante a validação, não um bug nosso**: o football-data.org (free tier) às vezes
+  devolve o campo `status` de uma partida **corrompido** — uma string de data/hora em vez do
+  enum esperado (`TIMED`, `FINISHED` etc.). Reproduzido de forma controlada: chamar
+  `GET /v4/competitions/BSA` imediatamente antes de `GET /v4/competitions/BSA/matches` dispara o
+  problema com frequência alta, mas não sempre — parece não-determinístico (a mesma sequência de
+  chamadas, repetida, corrompeu posições diferentes da lista de partidas em execuções distintas).
+  Chamar `/matches` sozinho, sem o `/competitions` logo antes, não reproduziu o problema em 3
+  tentativas isoladas. `getFacts()` sempre faz essa sequência (`fetchCompetition()` antes de
+  `fetchMatchweek()`), então isso **vai acontecer em uso real, não é só um artefato de teste**.
+
+  Não é bug nosso, e não fiz nenhuma mudança de código por causa disso: `mapMatches` (seção 6 da
+  spec) já trata status desconhecido descartando a partida com `console.warn`, nunca inventando
+  dado — exatamente o comportamento que esse tipo de sujeira de fonte externa pede. O efeito
+  prático é que, com alguma frequência, jogos agendados/futuros da rodada corrente somem da lista
+  (jogos `finished` não pareceram afetados nos testes). Registro isso aqui para quem pegar a
+  tarefa 02 ou investigar um "por que esse jogo não apareceu" no futuro — não é o nosso parser, é
+  a API de origem.
+
 ### O que foi criado
 
 Todos os arquivos da seção 16 ("Criar") existem: `src/sources/{competition,teams,http,time,
@@ -1207,9 +1242,8 @@ compilação de `tests/setup.test.ts`).
 - `tests/integration/golden-rule.test.ts` — **passou, 3/3 execuções**, depois do ajuste de
   pausa descrito acima (sem ele, falhava de forma consistente na 3ª chamada por rate limit da
   Voyage, não por variância de retrieval).
-- `tests/integration/live-sources.test.ts` — **não pôde ser confirmado passando**:
-  `getFacts` falha (token placeholder rejeitado, `400`); `listPassages` passa (RSS real, 50
-  itens brutos no feed gravado). Ver a seção de pendência acima.
+- `tests/integration/live-sources.test.ts` — **confirmado passando, 2/2**, depois do
+  `FOOTBALL_DATA_TOKEN` real (ver adendo pós-implementação no topo desta seção).
 
 **`LLM_CASSETTE`**: regravado por completo (`LLM_CASSETTE=record`), porque o prompt do
 `extractEntity` mudou (usa `listTeams()`/`COMPETITION` em vez de `getFacts({})`). Seguido o

@@ -11,49 +11,49 @@
     "name": "Flamengo",
     "nicknames": ["Mengão", "Rubro-Negro", "Fla"],
     "aliases": ["CR Flamengo", "Clube de Regatas do Flamengo"],
-    "footballDataId": 900002
+    "footballDataId": 1783
   },
   {
     "id": "corinthians",
     "name": "Corinthians",
     "nicknames": ["Timão", "Corintiano"],
     "aliases": ["SC Corinthians Paulista", "Corinthians Paulista", "Sport Club Corinthians Paulista"],
-    "footballDataId": 900003
+    "footballDataId": 1779
   },
   {
     "id": "sao-paulo",
     "name": "São Paulo",
     "nicknames": ["Tricolor Paulista", "Soberano"],
     "aliases": ["São Paulo FC", "SPFC", "São Paulo Futebol Clube"],
-    "footballDataId": 900004
+    "footballDataId": 1776
   },
   {
     "id": "santos",
     "name": "Santos",
     "nicknames": ["Peixe", "Alvinegro Praiano"],
     "aliases": ["Santos FC", "Santos Futebol Clube"],
-    "footballDataId": 900005
+    "footballDataId": 6685
   },
   {
     "id": "gremio",
     "name": "Grêmio",
     "nicknames": ["Imortal", "Tricolor Gaúcho"],
     "aliases": ["Grêmio FBPA", "Grêmio Foot-Ball Porto Alegrense"],
-    "footballDataId": 900006
+    "footballDataId": 1767
   },
   {
     "id": "internacional",
     "name": "Internacional",
     "nicknames": ["Colorado", "Inter"],
     "aliases": ["SC Internacional", "Sport Club Internacional"],
-    "footballDataId": 900007
+    "footballDataId": 6684
   },
   {
     "id": "cruzeiro",
     "name": "Cruzeiro",
     "nicknames": ["Raposa", "Celeste"],
     "aliases": ["Cruzeiro EC", "Cruzeiro Esporte Clube"],
-    "footballDataId": 900008
+    "footballDataId": 1771
   },
   {
     "id": "atletico-mg",
@@ -74,69 +74,69 @@
     "name": "Botafogo",
     "nicknames": ["Fogão", "Glorioso", "Estrela Solitária"],
     "aliases": ["Botafogo FR", "Botafogo de Futebol e Regatas"],
-    "footballDataId": 900011
+    "footballDataId": 1770
   },
   {
     "id": "vasco",
     "name": "Vasco da Gama",
     "nicknames": ["Gigante da Colina", "Cruzmaltino", "Vascão"],
     "aliases": ["CR Vasco da Gama", "Vasco"],
-    "footballDataId": 900012
+    "footballDataId": 1780
   },
   {
     "id": "bahia",
     "name": "Bahia",
     "nicknames": ["Esquadrão de Aço", "Tricolor de Aço", "Tricolor Baiano"],
     "aliases": ["EC Bahia", "Esporte Clube Bahia"],
-    "footballDataId": 900013
-  },
-  {
-    "id": "fortaleza",
-    "name": "Fortaleza",
-    "nicknames": ["Leão do Pici", "Tricolor Cearense"],
-    "aliases": ["Fortaleza EC", "Fortaleza Esporte Clube"],
-    "footballDataId": 900014
+    "footballDataId": 1777
   },
   {
     "id": "bragantino",
     "name": "Red Bull Bragantino",
     "nicknames": ["Massa Bruta"],
     "aliases": ["RB Bragantino", "Bragantino", "Red Bull Bragantino"],
-    "footballDataId": 900015
+    "footballDataId": 4286
   },
   {
     "id": "vitoria",
     "name": "Vitória",
     "nicknames": ["Leão da Barra"],
     "aliases": ["EC Vitória", "Esporte Clube Vitória"],
-    "footballDataId": 900016
-  },
-  {
-    "id": "juventude",
-    "name": "Juventude",
-    "nicknames": ["Papo"],
-    "aliases": ["EC Juventude", "Esporte Clube Juventude"],
-    "footballDataId": 900017
-  },
-  {
-    "id": "ceara",
-    "name": "Ceará",
-    "nicknames": ["Vozão"],
-    "aliases": ["Ceará SC", "Ceará Sporting Club"],
-    "footballDataId": 900018
-  },
-  {
-    "id": "sport",
-    "name": "Sport Recife",
-    "nicknames": ["Leão da Ilha"],
-    "aliases": ["Sport Club do Recife", "Sport"],
-    "footballDataId": 900019
+    "footballDataId": 1782
   },
   {
     "id": "mirassol",
     "name": "Mirassol",
     "nicknames": ["Leão Caipira"],
     "aliases": ["Mirassol FC", "Mirassol Futebol Clube"],
-    "footballDataId": 900020
+    "footballDataId": 4364
+  },
+  {
+    "id": "athletico-pr",
+    "name": "Athletico Paranaense",
+    "nicknames": ["Furacão"],
+    "aliases": ["CA Paranaense", "Athletico-PR", "Atlético Paranaense", "Clube Atlético Paranaense"],
+    "footballDataId": 1768
+  },
+  {
+    "id": "chapecoense",
+    "name": "Chapecoense",
+    "nicknames": ["Chape", "Verdão do Oeste"],
+    "aliases": ["Chapecoense AF", "Associação Chapecoense de Futebol"],
+    "footballDataId": 1772
+  },
+  {
+    "id": "coritiba",
+    "name": "Coritiba",
+    "nicknames": ["Coxa"],
+    "aliases": ["Coritiba FBC", "Coritiba Foot Ball Club"],
+    "footballDataId": 4241
+  },
+  {
+    "id": "remo",
+    "name": "Clube do Remo",
+    "nicknames": ["Leão Azul"],
+    "aliases": ["Clube do Remo"],
+    "footballDataId": 4287
   }
 ]
