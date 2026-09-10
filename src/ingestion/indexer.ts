@@ -18,7 +18,13 @@ export interface IndexReport {
  */
 export async function indexPassages(): Promise<IndexReport> {
   const [passages, facts] = await Promise.all([listPassages(), getFacts({})]);
-  const matchweekByMatchId = new Map(facts.matches.map((match) => [match.id, match.matchweek]));
+
+  // A source with an empty passage list must fail *before* the collection is touched:
+  // ensureCollection({ recreate: true }) is destructive, and an empty list caused by a
+  // network blip would otherwise silently wipe the whole index.
+  if (passages.length === 0) {
+    throw new Error("indexPassages: the source returned 0 passages — refusing to recreate the collection");
+  }
 
   const vectors = await embedAll(
     passages.map((passage) => passage.text),
@@ -33,13 +39,8 @@ export async function indexPassages(): Promise<IndexReport> {
       throw new Error(`missing embedding for passage ${passage.id}`);
     }
 
-    const matchweek = matchweekByMatchId.get(passage.matchId);
-    if (matchweek === undefined) {
-      throw new Error(`passage ${passage.id} references unknown match ${passage.matchId}`);
-    }
-
     return {
-      id: index + 1, // sequential integer — Qdrant point ids don't accept the fixture's string ids
+      id: index + 1, // sequential integer — Qdrant point ids don't accept our string ids
       vector,
       payload: {
         passageId: passage.id,
@@ -51,7 +52,9 @@ export async function indexPassages(): Promise<IndexReport> {
         teams: passage.teams,
         matchId: passage.matchId,
         competition: facts.competition.id,
-        matchweek,
+        // The matchweek is the one facts.ts reports for the current query, not derived
+        // from passage.matchId — an RSS passage isn't tied to a match at all (task 01).
+        matchweek: facts.matchweek,
         publishedAt: passage.publishedAt,
       },
     };

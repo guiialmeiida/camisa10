@@ -9,7 +9,7 @@ export const passagePayloadSchema = z.strictObject({
   url: z.string(),
   type: z.enum(["article", "chronicle", "matchReport", "preview"]),
   teams: z.array(z.string()),
-  matchId: z.string().min(1),
+  matchId: z.string().min(1).nullable(), // an RSS passage isn't tied to a match (task 01)
   competition: z.string().min(1),
   matchweek: z.number().int().positive(),
   publishedAt: z.string(),

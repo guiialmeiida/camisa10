@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { MODELS } from "../../config/models.ts";
-import { getFacts } from "../../sources/index.ts";
+import { COMPETITION, listTeams } from "../../sources/index.ts";
 import { callStructured } from "../llm.ts";
 import type { Entity, InitialState, StateWithEntity } from "../state.ts";
 
@@ -17,9 +17,13 @@ type EntityFromSchema = z.infer<typeof entitySchema>;
 ({} as EntityFromSchema) satisfies Entity;
 
 export async function extractEntity(state: InitialState): Promise<StateWithEntity> {
-  const facts = await getFacts({});
+  // listTeams()/COMPETITION are local and static (src/sources/teams.json,
+  // src/sources/competition.ts) — calling getFacts({}) here just to build this prompt
+  // would cost a real network round-trip to football-data.org per question, for a list
+  // of ~20 teams that never changes mid-process.
+  const teams = await listTeams();
 
-  const teamsList = facts.teams
+  const teamsList = teams
     .map((team) => `- id: ${team.id}, name: ${team.name}, nicknames: ${team.nicknames.join(", ")}`)
     .join("\n");
 
@@ -30,7 +34,7 @@ export async function extractEntity(state: InitialState): Promise<StateWithEntit
     "Times conhecidos (id, nome, apelidos):",
     teamsList,
     'Se não reconhecer o time com segurança, devolva team: null e confidence: "low".',
-    `A única competição conhecida é "${facts.competition.id}" (${facts.competition.name}). Use esse id quando a pergunta for sobre ela; devolva competition: null se a pergunta não mencionar competição nenhuma ou mencionar outra.`,
+    `A única competição conhecida é "${COMPETITION.id}" (${COMPETITION.name}). Use esse id quando a pergunta for sobre ela; devolva competition: null se a pergunta não mencionar competição nenhuma ou mencionar outra.`,
   ].join("\n");
 
   const entity = await callStructured({
