@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { Match as DomainMatch, Passage as DomainPassage } from "../../src/sources/types.ts";
 
 export const teamSchema = z.strictObject({
   id: z.string().min(1),
@@ -24,7 +25,12 @@ const matchBase = {
 // not a sentence in the spec someone can forget.
 export const matchSchema = z.discriminatedUnion("status", [
   z.strictObject({ ...matchBase, status: z.literal("finished"), score: scoreSchema }),
-  z.strictObject({ ...matchBase, status: z.literal("live"), score: scoreSchema }),
+  z.strictObject({
+    ...matchBase,
+    status: z.literal("live"),
+    score: scoreSchema,
+    minute: z.number().int().nullable(),
+  }),
   z.strictObject({ ...matchBase, status: z.literal("scheduled"), score: z.null() }),
 ]);
 
@@ -103,3 +109,9 @@ export type Match = z.infer<typeof matchSchema>;
 export type Passage = z.infer<typeof passageSchema>;
 export type MatchStatus = Match["status"]; // "finished" | "live" | "scheduled"
 export type PassageType = Passage["type"];
+
+// Compile-time check (spec §12): if the fixture's dummy shape and the real domain type
+// (src/sources/types.ts) ever diverge, `tsc` refuses to compile instead of a test quietly
+// passing against a shape production doesn't use anymore.
+({} as Match) satisfies DomainMatch;
+({} as Passage) satisfies DomainPassage;

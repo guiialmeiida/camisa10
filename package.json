@@ -14,12 +14,14 @@
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "typecheck": "tsc --noEmit",
     "ask": "node src/cli/ask.ts",
-    "index": "node src/cli/index-passages.ts"
+    "index": "node src/cli/index-passages.ts",
+    "sources": "node src/cli/sources.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.124.0",
     "@qdrant/js-client-rest": "^1.19.0",
     "dotenv": "^17.4.2",
+    "fast-xml-parser": "^5.11.1",
     "zod": "^4.5.4"
   },
   "devDependencies": {
