@@ -1,0 +1,66 @@
+{
+  "_fixtureNote": "Shape confirmed live against football-data.org during this task's discovery/refinement (see docs/tasks/01-data-sources.md). This specific file could not be re-recorded against the real API in the implementation step because FOOTBALL_DATA_TOKEN was not available in .env — the fields and structure below are the spec's own confirmed example (§6), extended with extra matches to exercise the status/score cases mapMatches needs to handle. This field itself is not part of the real response and is dropped by footballDataMatchesSchema, which only reads known fields.",
+  "competition": { "id": 2013, "name": "Campeonato Brasileiro Série A", "code": "BSA" },
+  "matches": [
+    {
+      "id": 545231,
+      "utcDate": "2026-09-06T00:30:00Z",
+      "status": "FINISHED",
+      "matchday": 12,
+      "venue": "Allianz Parque",
+      "homeTeam": { "id": 1769, "name": "SE Palmeiras", "shortName": "Palmeiras", "tla": "PAL" },
+      "awayTeam": { "id": 1765, "name": "Fluminense FC", "shortName": "Fluminense", "tla": "FLU" },
+      "score": { "fullTime": { "home": 1, "away": 3 } }
+    },
+    {
+      "id": 545232,
+      "utcDate": "2026-09-06T19:00:00Z",
+      "status": "IN_PLAY",
+      "matchday": 12,
+      "venue": "Neo Química Arena",
+      "homeTeam": { "id": 1783, "name": "SC Corinthians Paulista", "shortName": "Corinthians", "tla": "COR" },
+      "awayTeam": { "id": 1902, "name": "EC Bahia", "shortName": "Bahia", "tla": "BAH" },
+      "score": { "fullTime": { "home": 0, "away": 0 } }
+    },
+    {
+      "id": 545233,
+      "utcDate": "2026-09-07T22:00:00Z",
+      "status": "SCHEDULED",
+      "matchday": 12,
+      "venue": "Mineirão",
+      "homeTeam": { "id": 1771, "name": "Cruzeiro EC", "shortName": "Cruzeiro", "tla": "CRU" },
+      "awayTeam": { "id": 1767, "name": "Grêmio FBPA", "shortName": "Grêmio", "tla": "GRE" },
+      "score": { "fullTime": { "home": null, "away": null } }
+    },
+    {
+      "id": 545234,
+      "utcDate": "2026-09-08T22:00:00Z",
+      "status": "POSTPONED",
+      "matchday": 12,
+      "venue": null,
+      "homeTeam": { "id": 1958, "name": "CR Vasco da Gama", "shortName": "Vasco", "tla": "VAS" },
+      "awayTeam": { "id": 1786, "name": "Santos FC", "shortName": "Santos", "tla": "SAN" },
+      "score": { "fullTime": { "home": null, "away": null } }
+    },
+    {
+      "id": 545235,
+      "utcDate": "2026-09-07T00:00:00Z",
+      "status": "FINISHED",
+      "matchday": 12,
+      "venue": "Maracanã",
+      "homeTeam": { "id": 1783, "name": "SC Corinthians Paulista", "shortName": "Corinthians", "tla": "COR" },
+      "awayTeam": { "id": 1783, "name": "Botafogo FR", "shortName": "Botafogo", "tla": "BOT" },
+      "score": { "fullTime": { "home": null, "away": null } }
+    },
+    {
+      "id": 545236,
+      "utcDate": "2026-09-09T00:00:00Z",
+      "status": "WEIRD_UNKNOWN_STATUS",
+      "matchday": 12,
+      "venue": "Beira-Rio",
+      "homeTeam": { "id": 1905, "name": "SC Internacional", "shortName": "Internacional", "tla": "INT" },
+      "awayTeam": { "id": 1911, "name": "SE Palmeiras", "shortName": "Palmeiras", "tla": "PAL" },
+      "score": { "fullTime": { "home": 2, "away": 1 } }
+    }
+  ]
+}

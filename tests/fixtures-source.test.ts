@@ -1,14 +1,13 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { getFacts } from "../src/sources/index.ts";
-import { fixtureSchema, passageSchema } from "../src/sources/fixture-schema.ts";
+import { getFacts } from "./fixtures/fixture-source.ts";
+import { fixtureSchema, passageSchema } from "./fixtures/fixture-schema.ts";
 
-const FIXTURE_PATH = path.join(
-  import.meta.dirname,
-  "..",
-  "src/sources/fixtures/brasileirao-2026-matchweek-12.json",
-);
+// Task 01 moved the fixture and its schema out of src/sources/ (production talks to the
+// real APIs now) — this test double survives only to keep the golden-rule trap (p07)
+// testable. See docs/tasks/01-data-sources.md §12.
+const FIXTURE_PATH = path.join(import.meta.dirname, "fixtures", "brasileirao-2026-matchweek-12.json");
 
 async function loadRawFixture(): Promise<unknown> {
   const raw = await readFile(FIXTURE_PATH, "utf-8");
@@ -42,7 +41,7 @@ describe("fixture schema", () => {
   });
 });
 
-describe("getFacts", () => {
+describe("getFacts (fixture double)", () => {
   it("returns every match of the current matchweek without a filter", async () => {
     const facts = await getFacts({});
 
