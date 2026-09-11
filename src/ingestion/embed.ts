@@ -81,6 +81,12 @@ export async function embedAll(texts: string[], inputType: InputType): Promise<n
 
   for (const [index, batch] of batches.entries()) {
     if (index > 0) {
+      // Progress, not a debug log: a real `npm run index -- --recreate` against the full
+      // feed takes several minutes of waiting (see docs/tasks/02-ingestion-pipeline.md) —
+      // without this, the CLI goes silent long enough to look hung.
+      console.log(
+        `embedAll: waiting ${BATCH_INTERVAL_MS / 1000}s before batch ${index + 1}/${batches.length} (Voyage's rate-limit window is per minute, not per request)`,
+      );
       await sleep(BATCH_INTERVAL_MS);
     }
     vectors.push(...(await embedBatch(batch, inputType)));
@@ -117,6 +123,14 @@ async function embedBatch(texts: string[], inputType: InputType): Promise<number
   }
 
   const vectors = [...parsed.data.data].sort((a, b) => a.index - b.index).map((item) => item.embedding);
+
+  // A truncated response (fewer vectors than texts sent) would otherwise shift every
+  // vector after the gap onto the wrong text once this batch is concatenated with
+  // others in embedAll — silent misalignment, not a missing-embedding error at the end
+  // the way it was before batching existed.
+  if (vectors.length !== texts.length) {
+    throw new Error(`Voyage returned ${vectors.length} embeddings for ${texts.length} texts sent`);
+  }
 
   for (const vector of vectors) {
     if (vector.length !== EMBEDDING.dimensions) {
