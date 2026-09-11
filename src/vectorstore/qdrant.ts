@@ -10,6 +10,10 @@ import type { IndexedDigest, Point, SearchResult } from "./types.ts";
 // body that works in a test and fails in production.
 const RETRIEVE_BATCH_SIZE = 256;
 
+// Same spirit as RETRIEVE_BATCH_SIZE/UPSERT_BATCH_SIZE: a filter with thousands of `should`
+// clauses is the kind of thing that works in a test and fails in production.
+const ORPHAN_SWEEP_BATCH_SIZE = 64;
+
 // Just enough of the stored payload to compare — never the full text/title.
 const digestPayloadSchema = z.object({
   passageId: z.string().min(1),
@@ -33,6 +37,12 @@ export interface SearchParams {
   vector: number[];
   k?: number | undefined;
   filter?: QdrantFilter | undefined;
+}
+
+export interface OrphanSweep {
+  passageId: string;
+  /** How many chunks the passage produces *now*. Anything at a higher index is an orphan. */
+  chunkCount: number;
 }
 
 let client: QdrantClient | undefined;
@@ -144,6 +154,68 @@ export async function insertPoints(points: Point[]): Promise<number> {
   });
 
   return points.length;
+}
+
+function orphanSweepFilter(sweeps: OrphanSweep[]): QdrantFilter {
+  return {
+    should: sweeps.map((sweep) => ({
+      must: [
+        { key: "passageId", match: { value: sweep.passageId } },
+        { key: "chunkIndex", range: { gte: sweep.chunkCount } },
+      ],
+    })),
+  };
+}
+
+/**
+ * Deletes the points of a passage whose chunkIndex is >= its current chunk count — the
+ * leftovers of a longer previous version of the same text. Returns how many points were
+ * deleted. Counts first and skips the delete entirely when there is nothing to remove,
+ * which is the common case: the count is the only visible evidence the sweep ran (Qdrant's
+ * delete doesn't report how many points it removed), and it's a cheap request that avoids
+ * the delete request in the common case.
+ *
+ * A filter (`chunkIndex >= chunkCount`) rather than deleting specific ids: deleting by id
+ * would need to know how many chunks the *previous* version had — i.e. trusting a stored
+ * chunkCount that the new write is about to overwrite. The filter describes the desired
+ * state ("no chunk beyond index chunkCount - 1") instead, which is exactly what makes the
+ * sweep repeatable with no side effect from running it twice.
+ */
+export async function deleteOrphanChunks(sweeps: OrphanSweep[]): Promise<number> {
+  if (sweeps.length === 0) {
+    return 0;
+  }
+
+  const qdrant = getClient();
+  const collection = getCollectionName();
+  const url = loadEnv().QDRANT_URL;
+
+  let deleted = 0;
+  for (let start = 0; start < sweeps.length; start += ORPHAN_SWEEP_BATCH_SIZE) {
+    const batch = sweeps.slice(start, start + ORPHAN_SWEEP_BATCH_SIZE);
+    const filter = orphanSweepFilter(batch);
+
+    let countResult: Awaited<ReturnType<QdrantClient["count"]>>;
+    try {
+      countResult = await qdrant.count(collection, { filter, exact: true });
+    } catch (error) {
+      throw new Error(`could not reach Qdrant at ${url}: ${describeError(error)}`, { cause: error });
+    }
+
+    if (countResult.count === 0) {
+      continue;
+    }
+
+    try {
+      await qdrant.delete(collection, { filter, wait: true });
+    } catch (error) {
+      throw new Error(`could not reach Qdrant at ${url}: ${describeError(error)}`, { cause: error });
+    }
+
+    deleted += countResult.count;
+  }
+
+  return deleted;
 }
 
 /** k defaults to 5. Ordered by descending score. */

@@ -43,6 +43,8 @@ function samplePayload(passageId: string): PassagePayload {
   return {
     passageId,
     contentHash: "0".repeat(40),
+    chunkIndex: 0,
+    chunkCount: 1,
     text: `texto de ${passageId}`,
     title: `título de ${passageId}`,
     source: "Fixture Esportivo",
