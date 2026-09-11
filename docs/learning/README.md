@@ -16,5 +16,6 @@ onde mora a maior parte do aprendizado, porque é o que não aparece no código 
 |---|---|---|
 | [01-embeddings-and-vector-search.md](01-embeddings-and-vector-search.md) | O que é um embedding e por que busca vetorial não é busca por palavra | 00 |
 | [02-data-sources.md](02-data-sources.md) | Por que fato e narrativa vêm de fontes separadas, por que duas APIs de futebol, o que o RSS pode e não pode alimentar | 01 |
+| [03-ingestion-pipeline.md](03-ingestion-pipeline.md) | Por que ingestão é convergência, não reconstrução — id determinístico, digest de conteúdo, e onde classificar com LLM é seguro | 02 |
 
 _(cresce conforme as tarefas andam)_

@@ -45,6 +45,11 @@ grader julgando vários trechos de uma vez.
 
 Os modelos vivem em `src/config/models.js`, uma linha por etapa, para serem trocados e medidos.
 
+Uma linha desse arquivo não é um nó de runtime: `passageClassification` (`claude-haiku-4-5`)
+classifica `PassageType` durante a ingestão (tarefa 02), não em tempo de pergunta. Fica na mesma
+tabela de configuração por ser a mesma decisão de "modelo por etapa, medível e trocável" — só que
+a etapa é do pipeline de ingestão, não do grafo do agente.
+
 ### Os dois loops de feedback
 
 - **Grading de documentos** (*Corrective RAG*): antes de gerar, o grader reprova trechos
@@ -101,6 +106,8 @@ Para os termos de domínio não se retraduzirem a cada arquivo, a tradução é 
 | data | `date` | | ponto (Qdrant) | `point` |
 | confiança | `confidence` | | limiar | `threshold` |
 | variante/apelido de nome | `alias` | | feed (RSS) | `feed` |
+| fingerprint de conteúdo | `contentHash` | | resumo do que já está indexado | `digest` |
+| convergir para a fonte | `incremental` | | | |
 
 Os nós do agente mantêm os nomes já usados neste documento: `planner`, `grader`, `writer`
 (redator), `critic` (crítico), `entityExtraction` (extração de entidade).
