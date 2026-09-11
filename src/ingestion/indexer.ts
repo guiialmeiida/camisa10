@@ -150,13 +150,12 @@ export async function indexPassages(options?: IndexOptions): Promise<IndexReport
       continue;
     }
 
-    if (presentCount < chunked.chunks.length) {
-      // A partial write from a run that died mid-way — reindexing the whole passage is
-      // what resumes it.
-      changedPassages.push(chunked);
-      continue;
-    }
-
+    // Every chunk must be present *and* match the current hash to count as unchanged.
+    // A missing digest (`digest === undefined`) never equals `chunked.hash` here, so a
+    // partial write from a run that died mid-way — some chunks present, some missing —
+    // already falls through to `changedPassages` on its own; reindexing the whole
+    // passage is what resumes it. There's no separate branch for "some chunks missing"
+    // because this check already covers it.
     const allSameHash = chunkDigests.every((digest) => digest?.contentHash === chunked.hash);
     if (allSameHash) {
       unchanged += 1;

@@ -54,9 +54,15 @@ export async function answer(input: AskInput): Promise<FinalState> {
     model: `${MODELS.writer.model} (effort ${MODELS.writer.effort})`,
     ms: writeResult.ms,
     cited: writeResult.value.answer.citedPassages,
-    retrievedNotCited: stateWithData.context
-      .map((result) => result.payload.passageId)
-      .filter((id) => !writeResult.value.answer.citedPassages.includes(id)),
+    // Deduped: task 03 lets two chunks of the same passage both land in context, so
+    // without this the same passageId could print twice in "retrieved but not cited".
+    retrievedNotCited: [
+      ...new Set(
+        stateWithData.context
+          .map((result) => result.payload.passageId)
+          .filter((id) => !writeResult.value.answer.citedPassages.includes(id)),
+      ),
+    ],
   });
 
   return writeResult.value;

@@ -86,7 +86,13 @@ describe.skipIf(shouldSkip)("ingestion pipeline converges instead of rebuilding"
       // the 429 far more often than the same two calls spaced out — golden-rule.test.ts's
       // own 20s-apart calls never do. So this step gets the same pause as steps 4 and 5,
       // even though the spec only calls it out for those two.
-      if (process.env["LLM_CASSETTE"] === undefined) {
+      //
+      // The guard is `!== "replay"`, matching `shouldSkip` above — not `=== undefined`.
+      // This file's real Voyage calls were never recorded into LLM_CASSETTE (like
+      // live-sources.test.ts), so LLM_CASSETTE=record still runs this file for real; an
+      // `=== undefined` guard would skip the pause in that mode and hit the exact 429
+      // this pause exists to avoid.
+      if (process.env["LLM_CASSETTE"] !== "replay") {
         await new Promise((resolve) => setTimeout(resolve, 21_000));
       }
       embedSpy.mockClear();
@@ -111,7 +117,7 @@ describe.skipIf(shouldSkip)("ingestion pipeline converges instead of rebuilding"
       // steps 1-3 above already spent one embedding call each within the last rolling
       // minute (recreate, no-op has none, one changed passage). Space out before the
       // next real call, same pattern as golden-rule.test.ts.
-      if (process.env["LLM_CASSETTE"] === undefined) {
+      if (process.env["LLM_CASSETTE"] !== "replay") {
         await new Promise((resolve) => setTimeout(resolve, 21_000));
       }
 
@@ -140,7 +146,7 @@ describe.skipIf(shouldSkip)("ingestion pipeline converges instead of rebuilding"
       expect(longResults[0]?.payload.passageId).toBe(state.overridePassageId);
       expect(longResults[0]?.payload.chunkCount).toBe(3);
 
-      if (process.env["LLM_CASSETTE"] === undefined) {
+      if (process.env["LLM_CASSETTE"] !== "replay") {
         await new Promise((resolve) => setTimeout(resolve, 21_000));
       }
 
