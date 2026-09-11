@@ -60,7 +60,7 @@ describe.skipIf(shouldSkip)("ingestion pipeline converges instead of rebuilding"
   });
 
   it(
-    "recreate, then a no-op run, then a run with one changed passage",
+    "recreate, then a no-op run, then a run with one changed passage, then one that grows to 3 chunks, then shrinks back",
     async () => {
       // 1. First run: recreate — every fixture passage is new.
       const first = await indexPassages({ recreate: true });
@@ -80,6 +80,15 @@ describe.skipIf(shouldSkip)("ingestion pipeline converges instead of rebuilding"
       // 3. Third run: one passage's text changed in the double — changed: 1, points: 1,
       // the collection still has 14 points (updated in place, not duplicated), and the
       // point's stored text is the new one.
+      //
+      // Operational note: step 1's recreate already spent one embedding call. Observed
+      // against the real free-tier limit, two embedAll calls back-to-back (zero gap) trip
+      // the 429 far more often than the same two calls spaced out — golden-rule.test.ts's
+      // own 20s-apart calls never do. So this step gets the same pause as steps 4 and 5,
+      // even though the spec only calls it out for those two.
+      if (process.env["LLM_CASSETTE"] === undefined) {
+        await new Promise((resolve) => setTimeout(resolve, 21_000));
+      }
       embedSpy.mockClear();
       const newText = "Texto totalmente reescrito para provar que o point foi atualizado, não duplicado.";
       state.overrideText = newText;
@@ -97,7 +106,58 @@ describe.skipIf(shouldSkip)("ingestion pipeline converges instead of rebuilding"
       const results = await search({ vector: changedVector[0], k: 1 });
       expect(results[0]?.payload.passageId).toBe(state.overridePassageId);
       expect(results[0]?.payload.text).toBe(newText);
+
+      // Voyage's free tier is 3 requests/minute without a payment method on file —
+      // steps 1-3 above already spent one embedding call each within the last rolling
+      // minute (recreate, no-op has none, one changed passage). Space out before the
+      // next real call, same pattern as golden-rule.test.ts.
+      if (process.env["LLM_CASSETTE"] === undefined) {
+        await new Promise((resolve) => setTimeout(resolve, 21_000));
+      }
+
+      // 4. Fourth run: the same passage grows to a long enough text to produce 3 chunks
+      // — changed: 1, points: 3, no orphan yet (this passage never had more chunks than
+      // this), and the collection gains 2 points (14 -> 16). A search against the vector
+      // of one of the new chunks returns a point reporting chunkCount: 3.
+      embedSpy.mockClear();
+      const longText = Array.from(
+        { length: 20 },
+        (_, index) => `Parágrafo número ${index} sobre a reformulação total do elenco e da comissão técnica do time.`,
+      ).join(" ");
+      state.overrideText = longText;
+
+      const fourth = await indexPassages();
+
+      expect(fourth.changed).toBe(1);
+      expect(fourth.points).toBe(3);
+      expect(fourth.orphanPointsDeleted).toBe(0);
+      expect(await countPoints()).toBe(16);
+      expect(embedSpy).toHaveBeenCalledTimes(1);
+
+      const longVectors = await embedSpy.mock.results[0]?.value;
+      expect(longVectors).toHaveLength(3);
+      const longResults = await search({ vector: longVectors[0], k: 1 });
+      expect(longResults[0]?.payload.passageId).toBe(state.overridePassageId);
+      expect(longResults[0]?.payload.chunkCount).toBe(3);
+
+      if (process.env["LLM_CASSETTE"] === undefined) {
+        await new Promise((resolve) => setTimeout(resolve, 21_000));
+      }
+
+      // 5. Fifth run: the passage goes back to a short (1-chunk) text — changed: 1,
+      // points: 1, and the 2 leftover chunks from step 4 are swept: orphanPointsDeleted:
+      // 2, and the collection shrinks back to 14. This is the proof the orphan sweep
+      // works — the consequence the discovery flagged as unresolved.
+      embedSpy.mockClear();
+      state.overrideText = newText;
+
+      const fifth = await indexPassages();
+
+      expect(fifth.changed).toBe(1);
+      expect(fifth.points).toBe(1);
+      expect(fifth.orphanPointsDeleted).toBe(2);
+      expect(await countPoints()).toBe(14);
     },
-    60_000,
+    240_000,
   );
 });
