@@ -16,16 +16,80 @@ const voyageResponseSchema = z.object({
 
 export type InputType = "query" | "document";
 
+// Voyage's free tier, without a payment method on file, caps both requests/min (3) and
+// tokens/min (10,000) — see docs/tasks/01-data-sources.md and the recorded 429s from
+// earlier tasks. Task 02 first shipped assuming a single request per ingestion run
+// ("the feed brings dozens of items, not thousands") — wrong the moment the real feed
+// (35 passages, ~18.5K estimated tokens) was measured. Reopened here: split into
+// token-budgeted batches, paced a minute apart so the *rolling* one-minute token count
+// never crosses the ceiling even though each batch alone fits under it.
+const MAX_TOKENS_PER_BATCH = 5_000; // headroom under the real 10K/min ceiling for estimation error
+// (chars/4 is an English-shaped estimate; accented Portuguese text tokenizes worse, so the
+// margin below the real 10K ceiling needs to be wide, not just nonzero)
+const BATCH_INTERVAL_MS = 65_000; // > 60s: the window is per-minute, not per-request
+
+// Voyage doesn't expose a free tokenizer-count endpoint to check ahead of a call — ~4
+// characters/token is the standard ballpark for Latin-script text on this model family.
+function estimateTokens(text: string): number {
+  return Math.ceil(text.length / 4);
+}
+
+/** Greedy token-budgeted batching — never splits a single text, so one very long text
+ * can still produce a batch over budget; that's the Voyage API's problem to reject, not
+ * something worth adding chunking machinery here for (chunking is task 03's job). */
+function batchByTokenBudget(texts: string[], maxTokensPerBatch: number): string[][] {
+  const batches: string[][] = [];
+  let current: string[] = [];
+  let currentTokens = 0;
+
+  for (const text of texts) {
+    const tokens = estimateTokens(text);
+    if (current.length > 0 && currentTokens + tokens > maxTokensPerBatch) {
+      batches.push(current);
+      current = [];
+      currentTokens = 0;
+    }
+    current.push(text);
+    currentTokens += tokens;
+  }
+  if (current.length > 0) batches.push(current);
+
+  return batches;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 /**
  * One EMBEDDING.dimensions vector per text, in the same order.
  *
  * `inputType` follows Voyage's asymmetric embedding design: "document" at ingestion
  * time, "query" at question time. Same underlying vector space, better retrieval than
  * embedding both sides identically — see docs/learning/01.
+ *
+ * Splits into token-budgeted batches, paced a minute apart, when the input doesn't fit
+ * a single request's fair share of Voyage's free-tier rate limit. A single-text call
+ * (the common case: one question, at query time) always produces exactly one batch and
+ * pays no extra latency.
  */
 export async function embedAll(texts: string[], inputType: InputType): Promise<number[][]> {
   if (texts.length === 0) return [];
 
+  const batches = batchByTokenBudget(texts, MAX_TOKENS_PER_BATCH);
+  const vectors: number[][] = [];
+
+  for (const [index, batch] of batches.entries()) {
+    if (index > 0) {
+      await sleep(BATCH_INTERVAL_MS);
+    }
+    vectors.push(...(await embedBatch(batch, inputType)));
+  }
+
+  return vectors;
+}
+
+async function embedBatch(texts: string[], inputType: InputType): Promise<number[][]> {
   const { VOYAGE_API_KEY } = loadEnv();
   const response = await fetch(VOYAGE_EMBEDDINGS_URL, {
     method: "POST",
