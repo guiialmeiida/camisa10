@@ -29,12 +29,20 @@ Cortar em pedaços fixos tem um efeito colateral óbvio: uma frase pode cair bem
 com metade num chunk e metade no seguinte. Sem cuidado nenhum, essa frase nunca aparece inteira em
 lugar algum — o significado dela se perde nos dois pedaços truncados.
 
-A sobreposição resolve isso sem precisar entender onde as frases começam e terminam: cada chunk
+A sobreposição reduz isso sem precisar entender onde as frases começam e terminam: cada chunk
 novo recua alguns caracteres para dentro do chunk anterior (nesta tarefa, 150 caracteres — ~17%
-do tamanho do chunk). Uma frase que caiu perto do corte acaba **inteira** em pelo menos um dos dois
-chunks, mesmo que também apareça truncada no outro. O preço é redundância: o mesmo trecho de texto
-é embeddado (e pode aparecer no `<context>`) mais de uma vez. É uma troca deliberada — texto
-duplicado é barato; informação perdida no meio de um corte não tem como ser recuperada depois.
+do tamanho do chunk). Uma frase que caiu perto do corte, e que **cabe no overlap** (até ~150
+caracteres), acaba inteira em pelo menos um dos dois chunks, mesmo que também apareça truncada no
+outro. **Isso não é garantia para toda frase** — uma frase de 240 caracteres (comum em notícia
+esportiva: "...uma expulsão no segundo tempo e a estreia do novo técnico diante de quarenta mil
+torcedores...") pode ser maior que o overlap inteiro, e nesse caso ela não aparece completa em
+nenhum chunk, só truncada nos dois lados do corte. O overlap **aumenta muito a chance** de uma
+frase sobreviver inteira; não é uma prova para qualquer tamanho de frase. Quem realmente impede
+que isso vire um número inventado na resposta é outra contenção, mais adiante nesta página: o
+prompt do redator proíbe copiar número do `<context>`, ponto final — frase truncada ou inteira,
+tanto faz. O preço da sobreposição em si é redundância: o mesmo trecho de texto é embeddado (e
+pode aparecer no `<context>`) mais de uma vez. É uma troca deliberada — texto duplicado é barato;
+informação perdida no meio de um corte não tem como ser recuperada depois.
 
 ## Por que tamanho fixo, e não parágrafo ou sentença
 
@@ -101,7 +109,8 @@ entre embeddings de sentença)? É mais sofisticado e, no papel, corta exatament
 — mas troca uma função pura e determinística por uma chamada de rede (custo, latência, mais uma
 coisa que pode falhar) só para decidir *onde* cortar, sem mudar *o que* é indexado. Para o volume
 de texto deste projeto (notícias de algumas centenas a poucos milhares de caracteres), tamanho
-fixo com overlap já garante que nenhuma frase se perde — o ganho do chunking semântico apareceria
+fixo com overlap já reduz bastante a chance de uma frase se perder truncada nos dois lados (não é
+garantia para toda frase — ver a ressalva mais acima) — o ganho do chunking semântico apareceria
 em textos muito mais longos e heterogêneos do que os deste índice.
 
 **Por que não cortar por parágrafo ou por sentença?** Respondido acima — `stripHtml` já colapsou
