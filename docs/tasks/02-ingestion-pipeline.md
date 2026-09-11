@@ -6,11 +6,12 @@ tarefas 00 e 01: **substitui a ingestão de uma linha da fatia vertical por um p
 ## Status
 - [x] Discovery
 - [x] Refinamento técnico  ← spec aprovada pelo usuário em 2026-09-11, ver nota no início da seção
-- [x] Implementação  ← ver seção "Implementação"; unidade 113/113; achado real de infraestrutura
-      que bloqueou o `npm run index` de ponta a ponta contra o feed real, ver seção
-- [ ] Revisão
-- [x] Testes  ← unidade 113/113; integração real: vectorstore 4/4, `ingestion-incremental` 1/1
+- [x] Implementação  ← ver seção "Implementação"; achado real de infraestrutura resolvido
+      (loteamento de `embedAll`), `npm run index -- --recreate` completou contra o feed real
+- [x] Revisão  ← 9 achados, todos corrigidos — ver seção "Revisão"
+- [x] Testes  ← unidade 125/125; integração real: vectorstore 4/4, `ingestion-incremental` 1/1
       (a prova da tarefa), recall@5 = 0.929 (inalterado), regra de ouro 3/3 — ver "Implementação"
+      e "Revisão"
 
 ## Discovery
 
@@ -930,7 +931,49 @@ Nada além do que a seção 13 já lista. Não toquei em `tagTeams`, `matchId`, 
 corrigido, por decisão explícita de escopo).
 
 ## Revisão
-_A preencher._
+
+Revisão rodada em 2026-09-11, antes do PR. Confirmou a regra de ouro de pé e a idempotência sem
+transação de verdade (simulou falha no meio de um lote de `insertPoints` e provou que a execução
+seguinte retoma sem duplicar nem perder nada). Achou 9 pontos — 2 deles no loteamento de
+`embedAll` que eu (sessão principal, não o implementador original) escrevi depois do relatório
+inicial, provados **por mutação**: trocar `BATCH_INTERVAL_MS` por `0` ou inverter a ordem dos
+lotes deixava a suíte inteira verde. Corrigidos em commits próprios:
+
+1. **🔴 O teste do espaçamento de 65s não testava o espaçamento.** Só conferia que existiam
+   lotes, não que eles esperavam — zerar o intervalo passava limpo. Reescrito para afirmar a
+   contagem de chamadas de `fetch` **antes e depois** de avançar o timer (`< 65s` → ainda 1
+   chamada; `>= 65s` → 2). Confirmado que a mutação que passava antes agora falha.
+2. **🔴 Ordem entre lotes sem cobertura — corrupção silenciosa possível.** Inverter a ordem de
+   concatenação dos vetores não quebrava nenhum teste (os testes usavam o mesmo texto repetido,
+   cego a ordem). Novo teste usa textos e vetores identificáveis por índice e afirma
+   `vectors[i]` corresponde a `texts[i]` através de múltiplos lotes. Confirmado que a mutação que
+   passava antes agora falha.
+3. **`embedBatch` não conferia contagem de vetores devolvidos pela Voyage.** Uma resposta
+   truncada desalinharia tudo depois do ponto do buraco, em cascata, sem erro. Agora
+   `vectors.length !== texts.length` lança.
+4. **`npm run index -- --recreate` ficava mudo por 3-4 minutos no feed real.** Adicionado
+   `console.log` de progresso antes de cada espera entre lotes.
+5. **O loteamento não estava ensinado em `docs/learning/03-ingestion-pipeline.md`.** O doc ainda
+   dizia "a conta não é sobre dinheiro" sem a lição real (teto por *janela de tempo*, não por
+   chamada — esperar não ajuda se uma chamada sozinha já estoura a janela). Nova seção + entrada
+   em "Por que não X?" sobre por que espaçar preventivamente em vez de retry com backoff.
+6. **Duas guardas silenciosas em `indexer.ts` viradas em exceção**: o `if (pointId === undefined)
+   return` (nunca deveria disparar — `pointIds` é `.map()` 1:1 sobre `passages` — mas descartaria
+   um passage de `new`/`changed`/`unchanged` sem aviso se disparasse) agora lança; e `passageId`
+   duplicado vindo da fonte (hoje impossível, `listPassages` já dedupa, mas noutro módulo) agora
+   lança em vez de pagar embedding/classificação duas vezes e upsertar em cima em silêncio.
+7. **As três degradações de `fetchDigests` (tabela §9) ganharam teste automatizado**
+   (`tests/vectorstore/qdrant-digests.test.ts`, `@qdrant/js-client-rest` mockado): payload sem
+   `contentHash` é omitido com aviso; coleção inexistente devolve `[]` sem criar; erro de rede
+   lança (nunca `[]`). As três já estavam corretas (o revisor testou à mão contra Qdrant real);
+   faltava só o teste.
+
+**Não corrigido, por ser observação e não desvio** (achado 6 do relatório original do revisor):
+sem retry em 429 no meio de um lote — a margem escolhida (5K tokens/65s) torna isso improvável, e
+a spec não pede retry. Documentado como escolha consciente no "Por que não X?" do learning doc.
+
+`npm test` depois de tudo: **125 testes** (eram 118), todos passando.
+`LLM_CASSETTE=replay npm run test:integration`: 7 passando, 3 pulados, sem mudança.
 
 ## Testes
 
