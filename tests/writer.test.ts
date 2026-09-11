@@ -41,6 +41,7 @@ function buildState(overrides: Partial<StateWithData> = {}): StateWithData {
         score: 0.5,
         payload: {
           passageId: "p07",
+          contentHash: "0".repeat(40),
           text: "Em uma tarde movimentada no Allianz Parque, o alviverde venceu por dois a zero em casa...",
           title: "Crônica: um duelo movimentado no Allianz Parque",
           source: "Fixture Esportivo",

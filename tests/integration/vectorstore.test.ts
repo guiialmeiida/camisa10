@@ -2,19 +2,20 @@ import "dotenv/config";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { loadEnv } from "../../src/config/env.ts";
 import { EMBEDDING } from "../../src/config/models.ts";
-import { countPoints, ensureCollection, getClient, insertPoints, search } from "../../src/vectorstore/qdrant.ts";
+import { countPoints, ensureCollection, fetchDigests, getClient, insertPoints, search } from "../../src/vectorstore/qdrant.ts";
 import type { Point } from "../../src/vectorstore/types.ts";
 
 function vector(fill: (index: number) => number): number[] {
   return Array.from({ length: EMBEDDING.dimensions }, (_, index) => fill(index));
 }
 
-function samplePoint(id: number, passageId: string): Point {
+function samplePoint(id: number, passageId: string, contentHash = "0".repeat(40)): Point {
   return {
     id,
     vector: vector((index) => (index === id ? 1 : 0)),
     payload: {
       passageId,
+      contentHash,
       text: `texto ${passageId}`,
       title: `título ${passageId}`,
       source: "Fixture Esportivo",
@@ -68,6 +69,19 @@ describe("vectorstore round-trip", () => {
     const badPoint: Point = { ...samplePoint(3, "p03"), vector: [0.1, 0.2, 0.3] };
 
     await expect(insertPoints([badPoint])).rejects.toThrow();
+  });
+
+  it("fetchDigests returns digests for known ids and omits ids that aren't in the collection", async () => {
+    const points = [samplePoint(11, "p11", "1".repeat(40)), samplePoint(12, "p12", "2".repeat(40))];
+    await insertPoints(points);
+
+    const digests = await fetchDigests([11, 12, 999]);
+
+    expect(digests).toHaveLength(2);
+    const byPointId = new Map(digests.map((digest) => [digest.pointId, digest]));
+    expect(byPointId.get(11)).toMatchObject({ passageId: "p11", contentHash: "1".repeat(40) });
+    expect(byPointId.get(12)).toMatchObject({ passageId: "p12", contentHash: "2".repeat(40) });
+    expect(byPointId.has(999)).toBe(false);
   });
 
   it("throws on search when a stored payload doesn't match the schema", async () => {

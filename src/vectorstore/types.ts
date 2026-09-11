@@ -3,6 +3,7 @@ import { z } from "zod";
 // The payload comes back from Qdrant as `unknown` — it's a boundary, so it's zod.
 export const passagePayloadSchema = z.strictObject({
   passageId: z.string().min(1),
+  contentHash: z.string().length(40), // see src/ingestion/content-hash.ts
   text: z.string().min(1),
   title: z.string().min(1),
   source: z.string().min(1),
@@ -27,4 +28,11 @@ export interface SearchResult {
   id: number;
   score: number;
   payload: PassagePayload;
+}
+
+/** Just enough of a stored point to answer "is it already there, and unchanged?". */
+export interface IndexedDigest {
+  pointId: number;
+  passageId: string;
+  contentHash: string;
 }
