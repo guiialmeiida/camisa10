@@ -15,6 +15,13 @@ vi.mock("../../src/sources/index.ts", async () => {
   };
 });
 
+// Identity classifier — see recall.test.ts for why: preserves the fixture's curated
+// PassageType per passage and skips 14 real LLM calls (and cassette entries) per run.
+vi.mock("../../src/ingestion/classify.ts", () => ({
+  classifyPassageTypes: (passages: { id: string; type: string }[]) =>
+    Promise.resolve(passages.map((passage) => ({ passageId: passage.id, type: passage.type, fallback: false }))),
+}));
+
 const { answer } = await import("../../src/agent/graph.ts");
 const { indexPassages } = await import("../../src/ingestion/indexer.ts");
 const { isoDateParts } = await import("../../src/generation/match-format.ts");
@@ -65,7 +72,8 @@ describe("golden rule: no number leaks from the vector index", () => {
 
   beforeAll(async () => {
     process.env["QDRANT_COLLECTION"] = "camisa10-eval";
-    await indexPassages();
+    // recreate: true — same reasoning as recall.test.ts (spec §14, decision 2).
+    await indexPassages({ recreate: true });
     // Default hook timeout (5-10s) can be too tight for embedAll + ensureCollection +
     // insertPoints over the fixture's 14 passages, depending on Voyage's latency.
   }, 30_000);

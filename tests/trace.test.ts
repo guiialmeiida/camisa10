@@ -26,6 +26,7 @@ function buildFinalState(trace: TraceEntry[], overrides: Partial<FinalState> = {
 function samplePayload(passageId: string, type: PassagePayload["type"] = "article"): PassagePayload {
   return {
     passageId,
+    contentHash: "0".repeat(40),
     text: `texto de ${passageId}`,
     title: `título de ${passageId}`,
     source: "Fixture Esportivo",

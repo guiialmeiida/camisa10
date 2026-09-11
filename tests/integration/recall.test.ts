@@ -15,6 +15,15 @@ vi.mock("../../src/sources/index.ts", async () => {
   };
 });
 
+// Identity classifier: task 02 adds an LLM classification step to indexPassages, but
+// this suite cares about retrieval, not the classifier — mocking it preserves the
+// fixture's curated types (p05/p07/p10 chronicle, p01/p08/p11 preview) and avoids 14
+// extra LLM calls (and cassette entries) on every run.
+vi.mock("../../src/ingestion/classify.ts", () => ({
+  classifyPassageTypes: (passages: { id: string; type: string }[]) =>
+    Promise.resolve(passages.map((passage) => ({ passageId: passage.id, type: passage.type, fallback: false }))),
+}));
+
 const { indexPassages } = await import("../../src/ingestion/indexer.ts");
 const { measureRecall } = await import("../eval/recall.ts");
 import type { RecallReport } from "../eval/recall.ts";
@@ -34,7 +43,10 @@ describe("recall@5 against the fixture", () => {
 
   beforeAll(async () => {
     process.env["QDRANT_COLLECTION"] = "camisa10-eval";
-    await indexPassages();
+    // recreate: true — a determinism call the user made explicit on approval (spec §14,
+    // decision 2): an evaluation collection that stays clean beats saving one embedding
+    // call, because a leftover point from a previous run could silently skew recall@5.
+    await indexPassages({ recreate: true });
 
     report = await measureRecall({ k: 5 });
 

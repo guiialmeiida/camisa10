@@ -10,6 +10,8 @@ export type ModelConfig =
 
 export const MODELS = {
   entityExtraction: { model: "claude-haiku-4-5", maxTokens: 512 },
+  // Ingestion (task 02), not an agent runtime node — classifies PassageType per passage.
+  passageClassification: { model: "claude-haiku-4-5", maxTokens: 128 },
   planner: { model: "claude-opus-5", effort: "medium", maxTokens: 1024 },
   writer: { model: "claude-opus-5", effort: "high", maxTokens: 2048 },
   // grader and critic arrive in task 06

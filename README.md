@@ -28,11 +28,21 @@ o feed RSS da Gazeta Esportiva para notícia. Ver `docs/tasks/01-data-sources.md
 ```bash
 docker compose up -d                                   # sobe o Qdrant local
 npm run sources                                         # mostra a fonte real, sem gastar LLM nem tocar o Qdrant
-npm run index                                           # indexa os passages do feed real
+npm run index                                           # indexa incrementalmente: só o que é novo ou mudou
+npm run index -- --recreate                             # apaga a coleção e reconstrói do zero
 npm run ask -- "o Palmeiras está numa fase ruim?"        # pergunta, com o traço do agente
 npm run ask -- "sua pergunta" --k=8                     # quantos passages recuperar (default 5)
 npm run ask -- "sua pergunta" --no-trace                # só a resposta, sem o traço
 ```
+
+Desde a tarefa 02 (`docs/tasks/02-ingestion-pipeline.md`, `docs/learning/03-ingestion-pipeline.md`)
+`npm run index` é incremental: só passages novos ou com o texto/título mudado pagam embedding e
+classificação de gênero (`PassageType`, via LLM); rodar de novo sem nada ter mudado não gasta
+nada. **Migração pós-merge desta tarefa**: o payload do point ganhou um campo obrigatório
+(`contentHash`) — um point indexado antes desta tarefa não tem esse campo, e `search()`/`npm run
+ask` vão lançar ao encontrá-lo. Rode `npm run index -- --recreate` **uma vez** depois de atualizar
+para reconstruir a coleção com o novo schema; depois disso, `npm run index` incremental é o
+comando do dia a dia.
 
 Rodar os testes:
 
