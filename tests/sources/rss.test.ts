@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { parseFeed, stripHtml } from "../../src/sources/rss.ts";
 import type { Passage } from "../../src/sources/types.ts";
 
@@ -81,6 +81,31 @@ describe("parseFeed", () => {
 
     expect(passages[0]?.text).toContain("Texto completo do content:encoded");
     expect(passages[0]?.text).not.toContain("Texto curto da description");
+  });
+
+  it("drops only the item with an unparseable pubDate, not the whole feed", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const xml = buildRssDocument(`
+      <item>
+        <title>Data ilegível</title>
+        <link>https://exemplo.invalido/data-ruim</link>
+        <pubDate>segunda-feira, 8 de setembro</pubDate>
+        <description>Texto de teste com conteúdo suficiente.</description>
+      </item>
+      <item>
+        <title>Data boa</title>
+        <link>https://exemplo.invalido/data-boa</link>
+        <pubDate>Sat, 05 Sep 2026 23:47:00 +0000</pubDate>
+        <description>Texto de teste com conteúdo suficiente.</description>
+      </item>
+    `);
+
+    const passages = parseFeed(xml, FEED);
+
+    expect(passages).toHaveLength(1);
+    expect(passages[0]?.title).toBe("Data boa");
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
   });
 
   it("discards an item whose text is empty after stripHtml", () => {

@@ -69,6 +69,21 @@ export function parseFeed(xml: string, feed: Feed): Passage[] {
 
     if (!title || !url || !pubDate || !text) continue;
 
+    // A single unparseable <pubDate> is an item-level problem, not a feed-level one —
+    // spec §9/§13 only escalates to an exception when the whole feed is unreachable.
+    // Letting toSaoPauloIso's throw propagate here would take fetchFeed's one bad date
+    // and turn it into "the only configured feed failed" -> listPassages throws ->
+    // npm run index refuses to run.
+    let publishedAt: string;
+    try {
+      publishedAt = toSaoPauloIso(pubDate);
+    } catch (error) {
+      console.warn(
+        `rss.ts: item "${title}" from "${feed.name}" has an unparseable pubDate "${pubDate}" — dropped (${error instanceof Error ? error.message : String(error)})`,
+      );
+      continue;
+    }
+
     passages.push({
       id: createHash("sha1").update(url).digest("hex").slice(0, 12),
       matchId: null,
@@ -77,7 +92,7 @@ export function parseFeed(xml: string, feed: Feed): Passage[] {
       title,
       source: feed.name,
       url,
-      publishedAt: toSaoPauloIso(pubDate),
+      publishedAt,
       text,
     });
   }
