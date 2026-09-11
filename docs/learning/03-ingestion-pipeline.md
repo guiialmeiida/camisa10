@@ -9,10 +9,17 @@ a última vez que olhei?".
 
 Até esta tarefa, `npm run index` fazia a coisa mais simples possível: apaga a coleção inteira,
 embedda tudo de novo, escreve tudo de novo. Funciona, e é fácil de entender — mas o custo cresce
-com o tamanho do índice, não com o tamanho da mudança. Se o feed da Gazeta Esportiva trouxer 34
-notícias e só 4 forem novas desde ontem, reconstruir do zero ainda assim gasta 34 chamadas de
-embedding e 34 classificações. A conta não é sobre dinheiro (embedding é barato) — é sobre o que
-o pipeline **precisa saber** para não pagar duas vezes pelo mesmo trabalho.
+com o tamanho do índice, não com o tamanho da mudança. Se o feed da Gazeta Esportiva trouxer 36
+notícias e só 4 forem novas desde ontem, reconstruir do zero ainda assim gasta 36 chamadas de
+embedding e 36 classificações.
+
+A conta não é só sobre dinheiro — embedding é barato mesmo. É sobre **limite de taxa**: a Voyage
+grátis, sem cartão cadastrado, tem teto de 10.000 tokens por minuto. Uma reconstrução completa do
+feed real desta tarefa mede ~18.500 tokens — **numa chamada só, isso já estoura o teto sozinho**,
+antes de qualquer coisa relacionada a "quantas chamadas" ou "quanto custa em dinheiro". A lição
+não é "poupe dinheiro", é "poupe o que o pipeline **precisa saber** para não pagar duas vezes pelo
+mesmo trabalho" — e, no caso do embedding, também para não mandar de uma vez mais do que a janela
+de um minuto aguenta.
 
 Reconstruir é simples justamente porque evita responder uma pergunta difícil: "este item que
 estou vendo agora já está no índice, e do jeito certo?". Um pipeline incremental existe só para
@@ -110,6 +117,25 @@ falha) e a contagem por `PassageType`. A CLI (`npm run index`) imprime isso — 
 — quanto do trabalho de uma execução foi realmente novo, e o que o classificador decidiu, em
 agregado, sem ninguém precisar abrir o Qdrant para descobrir.
 
+## Limite de taxa é por janela de tempo, não por chamada
+
+Essa tarefa foi aprovada assumindo que uma reconstrução completa caberia numa chamada de
+embedding só — "o feed traz dezenas de itens, não milhares". Rodar contra o feed real (36
+notícias, ~18.500 tokens estimados) provou isso errado: a Voyage devolveu `429` mesmo depois de
+**esperar minutos** entre tentativas. Esperar não ajudou porque o problema não era "chamadas
+demais numa janela" — era **uma chamada maior que a janela inteira**.
+
+A correção não é só "manda menos de cada vez" — é "manda menos de cada vez, **e espaça no
+tempo**". `embedAll` divide os textos em lotes por orçamento estimado de token e espera ~65
+segundos entre um lote e o próximo. O espaçamento importa tanto quanto o tamanho do lote: dois
+lotes de 5.000 tokens cada, disparados em sequência rápida, ainda somam 10.000 tokens dentro do
+mesmo minuto — o teto de "tokens por minuto" é sobre uma **janela deslizante**, não sobre o
+tamanho de uma requisição isolada. Só cortar o lote sem esperar resolveria o sintoma (uma
+requisição grande demais) sem resolver a causa (tokens demais numa janela de um minuto).
+
+Uma pergunta única em tempo de resposta (`embed()`, uma pergunta do usuário) sempre cabe num lote
+só — o espaçamento nunca entra no caminho comum, só na ingestão em volume.
+
 ## Por que não X?
 
 **Por que não `scroll` com filtro por `passageId`, em vez de `retrieve` por id?** O Qdrant também
@@ -139,6 +165,14 @@ incomodar de verdade, com dado real sobre o tamanho do problema.
 CLI, sem servidor rodando. Automatizar a cadência de ingestão é infraestrutura adicional que hoje
 não tem problema nenhum para resolver — ninguém está esperando um índice sempre atualizado sem
 disparar nada. Se isso mudar, é uma tarefa própria, não um acréscimo silencioso a esta.
+
+**Por que não retry com backoff em vez de espaçar preventivamente as chamadas de embedding?**
+Retry reage depois de já ter tomado o `429`; espaçar preventivamente impede o `429` de acontecer.
+Com retry, cada tentativa fracassada ainda consome parte da janela do minuto tentando — e no pior
+caso, uma falha no último lote de uma reconstrução grande descartaria o trabalho de todos os
+lotes anteriores daquela chamada (sem rollback de Qdrant, mas o `embedAll` inteiro rejeita).
+Espaçar é mais lento no caminho feliz (uma reconstrução de verdade leva minutos), mas é
+determinístico: não depende de adivinhar quantas tentativas o rate limit vai exigir.
 
 **Por que não uma chamada de LLM em lote (todos os passages de uma vez), em vez de uma por
 item?** Uma chamada em lote é mais barata em tokens, mas devolve um array que precisa ser
