@@ -7,8 +7,10 @@ Corresponde ao nó "Índice vetorial" do diagrama em `docs/architecture.md`. Dep
 - [x] Discovery
 - [x] Refinamento técnico  ← spec aprovada pelo usuário em 2026-09-11, ver nota no início da seção
 - [x] Implementação
-- [ ] Revisão
-- [x] Testes
+- [x] Revisão  ← 7 achados, todos corrigidos (2 críticos: loop infinito e chunk vazio em
+      `chunkText`) — ver seção "Revisão"
+- [x] Testes  ← unidade 165/165; integração real: `recall@5 = 0.929` (inalterado) — ver
+      "Implementação", "Revisão" e "Testes"
 
 ## Discovery
 
@@ -973,7 +975,60 @@ implementada exatamente como especificada, e é a asserção de ordem no teste "
   spec pede, e documentei os números abaixo; não escrevi nenhum script de migração.
 
 ## Revisão
-_A preencher._
+
+Revisão rodada em 2026-09-11, antes do PR. Confirmou a regra de ouro de pé (`chunkIndex`/
+`chunkCount` nunca chegam ao prompt do writer), a ordem sweep-antes-do-upsert correta por
+mutação de código de verdade (inverteu a ordem, o teste correspondente falhou), e um fuzz de 400
+textos aleatórios × 8 pares size/overlap sem achar nada — mas achou um bug real e sério fora
+desse fuzz, com entrada adversarial específica (espaço duplo/múltiplo, algo que o texto real via
+RSS nunca produz porque `stripHtml` já colapsa espaço, mas que a função pública `chunkText` não
+protegia). Corrigidos em commits próprios:
+
+1. **🔴 `chunkText` travava em loop infinito com espaço múltiplo.** Reproduzido de verdade
+   (processo preso, matado por timeout). Causa raiz em `advanceToWordStart`: a checagem
+   "o caractere anterior é espaço" trata qualquer posição **dentro** de uma sequência de 2+
+   espaços como já sendo início de palavra (o caractere anterior também é espaço), então a
+   função retornava a posição sem avançar — e o cálculo do próximo `start` também não avançava.
+   Reescrita para pular a sequência de espaço inteira, não só verificar o caractere anterior.
+   Adicionei também uma trava de segurança (`throw` se `start` não avançar), defesa em
+   profundidade dado quão sutil essa lógica se provou.
+2. **🔴 Um segundo bug relacionado, achado ao corrigir o primeiro**: quando uma palavra tem
+   **exatamente** `size` caracteres, o corte duro cai por coincidência bem no início do espaço
+   seguinte — mas o `cap` (até onde o próximo `start` pode avançar) só era normalizado quando a
+   fronteira vinha da busca por espaço na janela, não quando vinha do corte duro. Resultado: o
+   próximo chunk começava em cima do espaço e saía vazio. Corrigido: `cap` agora é normalizado
+   sempre que o caractere em `end` for espaço, independente de como `end` foi calculado.
+   Confirmado com fuzz de 500 textos com espaço múltiplo variado, 0 falhas (antes: 3 dos 500,
+   incluindo os dois travamentos).
+3. **🟡 `docs/learning/04-chunking.md` ensinava como garantia algo que só vale para frase menor
+   que o overlap (150 caracteres).** Reproduzido: frase de 240 caracteres cortada não aparece
+   inteira em nenhum chunk. Não fere a regra de ouro (a contenção real é o prompt proibindo
+   copiar número do contexto), mas é imprecisão de conteúdo didático. Reescrito nos dois lugares
+   onde a afirmação aparecia, deixando explícito que overlap **aumenta a chance**, não garante.
+   A spec aprovada (`docs/tasks/03-vector-index.md` §13.4b) tem a mesma imprecisão no texto
+   histórico — não reescrita (é registro do que foi aprovado), só o doc de aprendizado, que é
+   onde alguém relê o conceito.
+4. **🟡 O ramo de "escrita parcial" em `indexer.ts` era código morto disfarçado de lógica** —
+   apagar o bloco não quebrava nenhum teste, porque a comparação de hash logo abaixo (`digest ===
+   undefined` nunca bate com nenhum hash) já cobria o mesmo efeito por acidente. Removido o ramo
+   redundante, mantido um comentário explicando por quê; o teste "escrita parcial" continua
+   passando pelo caminho unificado.
+5. **🟡 A condição da pausa de 21s no teste de integração não batia com a condição do skip** —
+   com `LLM_CASSETTE=record`, o arquivo roda (não é pulado) mas a pausa só disparava com
+   `LLM_CASSETTE` totalmente ausente, batendo no 429 que a pausa existe pra evitar. Unificado
+   pra `!== "replay"` nos dois lugares.
+6. **🟢 Trace podia repetir o mesmo `passageId` em "retrieved but not cited"** quando dois chunks
+   da mesma notícia apareciam sem citação — consequência direta do chunking. Dedup com
+   `[...new Set(...)]` em `src/agent/graph.ts`.
+7. **`.obsidian/` no `.gitignore`**: entrou nos commits desta tarefa (na criação da branch) sem
+   relação com o escopo — é config local do editor Obsidian, inofensiva, mas divergência que não
+   estava documentada em lugar nenhum até agora.
+
+`npm test` depois de tudo: **165 testes** (eram 162), todos passando, incluindo um fuzz
+determinístico (não aleatório, fixo pra não flakear em CI) cobrindo as classes de entrada que
+quebraram `chunkText`. `LLM_CASSETTE=replay npm run test:integration`: 8 passando, 3 pulados, sem
+mudança. `npm run eval:chunking` reconfirmado contra a coleção real depois da correção: 27
+passages → 90 chunks, sem travar.
 
 ## Testes
 
