@@ -871,6 +871,58 @@ tokens grátis da série 3 continuam valendo — não é cobrança automática, 
 reduzido), ou (b) reabrir a decisão de lotear `embedAll` numa tarefa própria (fora do escopo
 aprovado aqui). Não fiz nenhuma das duas.
 
+### Adendo: decisão reaberta — `embedAll` agora loteia por orçamento de tokens
+
+O usuário escolheu a opção (b) acima. **Reabre, só neste ponto, o item "Lotear as chamadas à
+Voyage" da seção 13 (fora de escopo)** — o resto da spec não foi tocado.
+
+`src/ingestion/embed.ts`: `embedAll` divide os textos em lotes por orçamento estimado de tokens
+(`MAX_TOKENS_PER_BATCH = 5_000`, `~4 caracteres/token` — a Voyage não expõe endpoint de contagem
+de token grátis pra medir com precisão antes da chamada; a margem precisou ser generosa, não só
+não-zero, porque texto em português com acento tokeniza pior do que a estimativa em caracteres
+sugere — ver o resultado medido abaixo). Lotes depois do primeiro esperam
+`BATCH_INTERVAL_MS = 65_000` antes de disparar — **65s e não algo menor**, porque o teto da
+Voyage é por *janela de um minuto*, não por requisição: duas chamadas de ~5K tokens cada,
+disparadas em sequência rápida, ainda somam ~10K no mesmo minuto e encostariam no teto. Um texto
+sozinho maior que o orçamento nunca é dividido (chunking é tarefa 03); é problema da própria API
+rejeitar, não deste módulo.
+
+Uma chamada de pergunta única (`embed()`, tempo de resposta ao usuário) sempre produz exatamente
+um lote — nenhuma latência extra no caminho comum. Só a ingestão em volume paga a espera.
+
+**Testado com timers falsos** (`tests/ingestion/embed.test.ts`, `vi.useFakeTimers()` +
+`vi.runAllTimersAsync()`): confirma o loteamento e o espaçamento sem esperar de verdade nos
+testes de unidade. `npm test`: **118 testes** (eram 113), todos passando.
+
+**Verificado contra a Voyage real**: a primeira tentativa, com `MAX_TOKENS_PER_BATCH = 8_000`,
+ainda bateu em `429`. `chars/4` é estimativa pensada pra inglês; texto em português com acento
+tokeniza pior (sequência multi-byte em UTF-8), então o orçamento real por lote ficava mais perto
+do teto de 10K do que a estimativa em caracteres sugeria. Reduzido para `5_000` — margem maior,
+não só não-zero — e a segunda tentativa completou:
+
+```
+$ npm run index -- --recreate
+collection camisa10 (recreate)
+  36 passages from the source
+  36 to index (full rebuild)
+  36 classified: 27 article, 4 matchReport, 1 chronicle, 4 preview  (0 fallbacks)
+  36 points upserted
+```
+
+`curl` contra o Qdrant confirma `points_count: 36`. Segunda execução, incremental, sem opções:
+
+```
+$ npm run index
+collection camisa10 (incremental)
+  36 passages from the source
+  0 new, 0 changed, 36 unchanged
+  nothing to do — no embeddings, no LLM calls, no writes
+```
+
+Zero chamada de embedding, zero chamada de LLM — a prova de ponta a ponta, contra dado real e a
+coleção de produção, de que o pipeline converge em vez de reconstruir. É a primeira vez que
+`npm run index` roda contra o feed real completo desde que a fonte real existe (tarefa 01).
+
 ### O que foi visto e não foi feito, por estar fora de escopo
 
 Nada além do que a seção 13 já lista. Não toquei em `tagTeams`, `matchId`, chunking, cache de
