@@ -38,11 +38,24 @@ npm run ask -- "sua pergunta" --no-trace                # só a resposta, sem o 
 Desde a tarefa 02 (`docs/tasks/02-ingestion-pipeline.md`, `docs/learning/03-ingestion-pipeline.md`)
 `npm run index` é incremental: só passages novos ou com o texto/título mudado pagam embedding e
 classificação de gênero (`PassageType`, via LLM); rodar de novo sem nada ter mudado não gasta
-nada. **Migração pós-merge desta tarefa**: o payload do point ganhou um campo obrigatório
-(`contentHash`) — um point indexado antes desta tarefa não tem esse campo, e `search()`/`npm run
-ask` vão lançar ao encontrá-lo. Rode `npm run index -- --recreate` **uma vez** depois de atualizar
-para reconstruir a coleção com o novo schema; depois disso, `npm run index` incremental é o
+nada. Desde a tarefa 03 (`docs/tasks/03-vector-index.md`, `docs/learning/04-chunking.md`), cada
+passage é cortado em pedaços (`chunk`) de tamanho fixo antes de virar vetor — um point do Qdrant
+é um chunk, não um passage inteiro.
+
+**Migração pós-merge da tarefa 03**: os ids de point mudaram (agora dependem também da posição do
+chunk) e o payload ganhou dois campos obrigatórios (`chunkIndex`, `chunkCount`) — um point
+indexado antes desta tarefa fica inalcançável pelo diff incremental e faz `search()`/`npm run ask`
+lançar ao encontrá-lo. Rode `npm run index -- --recreate` **uma vez** depois de atualizar para
+reconstruir a coleção do zero com o novo schema; depois disso, `npm run index` incremental é o
 comando do dia a dia.
+
+Ferramenta de inspeção manual do chunking (não entra no `npm test`, não tem "passou/falhou"):
+
+```bash
+npm run eval:chunking                                    # distribuição de chunks com os parâmetros default
+npm run eval:chunking -- --size=600 --overlap=100        # distribuição com outros parâmetros, offline (não toca o índice)
+npm run eval:chunking -- "como o Palmeiras vem jogando?" # distribuição + top-k contra o índice atual
+```
 
 Rodar os testes:
 

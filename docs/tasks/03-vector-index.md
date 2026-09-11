@@ -6,9 +6,9 @@ Corresponde ao nó "Índice vetorial" do diagrama em `docs/architecture.md`. Dep
 ## Status
 - [x] Discovery
 - [x] Refinamento técnico  ← spec aprovada pelo usuário em 2026-09-11, ver nota no início da seção
-- [ ] Implementação
+- [x] Implementação
 - [ ] Revisão
-- [ ] Testes
+- [x] Testes
 
 ## Discovery
 
@@ -862,10 +862,161 @@ segunda e a terceira, sim, se a resposta for diferente do que assumi.
    remover — o trace passa a imprimir só `chunk #2`, e nada mais muda.
 
 ## Implementação
-_A preencher._
+
+Implementado em 2026-09-11 contra a spec da seção "Refinamento técnico", sem reabri-la.
+
+### O que foi criado
+
+Todos os arquivos novos da seção 14: `src/ingestion/chunk.ts` (`chunkText` + `CHUNK_SIZE`/
+`CHUNK_OVERLAP` + `ChunkOptions`); `tests/ingestion/chunk.test.ts`; `tests/eval/chunking-report.ts`
+(a avaliação manual da seção 11); `docs/learning/04-chunking.md`.
+
+### O que foi alterado
+
+`src/vectorstore/point-id.ts` (`pointIdFromPassageId` → `pointIdFromChunk(passageId, chunkIndex)`);
+`src/vectorstore/types.ts` (`chunkIndex`/`chunkCount` no `passagePayloadSchema`);
+`src/vectorstore/qdrant.ts` (`deleteOrphanChunks` + `OrphanSweep` + `ORPHAN_SWEEP_BATCH_SIZE`);
+`src/ingestion/content-hash.ts` (assinatura `{ title, text }` → `{ title, chunks }`);
+`src/ingestion/indexer.ts` (reescrito: chunking por passage, diff por chunk, sweep antes do
+upsert, `IndexReport` com `chunks`/`orphanPointsDeleted` novos); `src/cli/index-passages.ts`
+(linha de chunking com os parâmetros, linha de órfãos, `classified:` por `newPassages + changed`);
+`src/agent/trace.ts` (`chunk i/N` quando `chunkCount > 1`); `package.json` (script
+`eval:chunking`); `tests/vectorstore/point-id.test.ts`; `tests/vectorstore/qdrant-digests.test.ts`
+(casos de `deleteOrphanChunks`, cliente mockado); `tests/ingestion/content-hash.test.ts`;
+`tests/ingestion/indexer.test.ts` (reescrito, chunk.ts mockável); `tests/integration/
+vectorstore.test.ts` (`samplePoint` com `chunkIndex`/`chunkCount` + prova do filtro de sweep
+contra Qdrant real); `tests/integration/ingestion-incremental.test.ts` (passos 4-5: cresce para 3
+chunks, depois encolhe e prova o sweep); `tests/{graph,trace,writer}.test.ts` (payloads de amostra
+com os dois campos novos, mais os dois casos novos da seção 15 em `trace`/`writer`); `README.md`;
+`docs/learning/README.md`; `docs/architecture.md` (glossário: `chunk`, `overlap`, `orphan chunk`).
+
+**Nada foi apagado.**
+
+### Decisões tomadas dentro do espaço que a spec deixou em aberto
+
+- **Interpretação exata da regra 4 do algoritmo de chunking** (avançar o próximo `start` até o
+  início da próxima palavra): a spec descreve isso em prosa ("avançado para o começo da próxima
+  palavra, o primeiro caractere depois do espaço em branco seguinte"), mas não define o
+  pseudocódigo exato. Minha primeira implementação tratava isso literalmente — sempre buscar o
+  *próximo* espaço em branco a partir de `fimReal - overlap`, mesmo quando essa posição já caía
+  exatamente no início de uma palavra — e isso continha um bug real: quando o corte do chunk
+  anterior caía justo sobre um espaço em branco (comum, já que é exatamente onde a regra 3 corta),
+  a busca "sempre avance" pulava a palavra seguinte inteira, o que podia empurrar o próximo
+  `start` para além do fim do chunk atual e cair no ramo "abriria um buraco" — cujo destino,
+  usando `end` (a posição do espaço) como teto, reintroduzia corte no meio de palavra. Encontrei
+  isso com um teste de verificação (`3.500` sendo partido em `"3.500"`, `".500"`, `"500"`, `"00"`,
+  `"0"` ao longo de vários chunks) antes de escrever o teste de unidade oficial. Corrigido com
+  duas mudanças: (a) "avançar" só pula à frente quando a posição de partida não está *já* no
+  início de uma palavra (ou seja, não é precedida por espaço em branco); (b) o teto do avanço
+  passou a ser `advanceToWordStart(text, end)` (o início da próxima palavra depois do fim do chunk
+  atual), não `end` em si — porque `end`, quando é um espaço em branco, não é uma posição válida
+  de início de chunk, e usá-lo como teto reabria a possibilidade de corte no meio de palavra que a
+  regra inteira existe para evitar. O teste `"não parte um token numérico"` da seção 15 cobre
+  exatamente este caso e teria pego o bug.
+- **Mensagens de erro de `chunkText` para `size`/`overlap` inválidos**: a spec fixa o texto exato
+  só para o caso `overlap >= size` (`"overlap (900) must be smaller than size (900)"`). Para
+  `size < 1` e `overlap < 0`, escrevi mensagens análogas (`"size (0) must be an integer >= 1"`,
+  `"overlap (-1) must be an integer >= 0"`) seguindo o mesmo padrão — a spec não fixa esse texto,
+  só exige que a função lance.
+- **`chunk.ts` mockável em `tests/ingestion/indexer.test.ts`**: a spec (seção 15) pede
+  explicitamente "sources, embed, qdrant, classify e chunk mockáveis". Implementei mockando o
+  módulo inteiro (`vi.mock("../../src/ingestion/chunk.ts", () => ({ chunkText: vi.fn() }))`) com
+  um padrão default de identidade (`(text) => [text]`, um chunk por passage) e overrides por texto
+  de entrada nos testes que precisam de múltiplos chunks — o mesmo padrão já usado para
+  `pointIdFromChunk`/`pointIdFromPassageId` desde a tarefa 02.
+- **Números do teste de "chunks consecutivos compartilham pelo menos uma palavra"** (seção 15):
+  a spec descreve a propriedade, não os parâmetros. Usei palavras de largura fixa (`w000`, `w001`,
+  ...) para poder calcular o limite `overlap + comprimento de uma palavra` exatamente, em vez de
+  aproximar.
+- **Texto de ~2,5x `size` para o teste de "3 chunks"**: escolhi `size=100`/`overlap=20` e
+  50 palavras numeradas (249 caracteres, ~2,49x), verificado empiricamente para produzir
+  exatamente 3 chunks — a spec não fixa os parâmetros nem o texto exato, só a proporção e o
+  resultado esperado.
+- **Ordem dos passos 4/5 do teste de integração de ingestão**: o crescimento (2/4) usa um texto
+  gerado com 20 parágrafos numerados repetidos (`Array.from({length:20}, ...)`), calibrado
+  empiricamente contra `chunkText` real para produzir exatamente 3 chunks com os parâmetros
+  default (900/150) — a spec pede "3 chunks" sem fixar o texto.
+
+### Onde a implementação se desviou da spec, e por quê
+
+**Um desvio, no teste de integração, não no código de produção**: adicionei uma pausa de 21s
+**antes do passo 3** (o passage com texto alterado) de `tests/integration/
+ingestion-incremental.test.ts`, além das duas pausas que a spec já pedia explicitamente antes dos
+passos 4 e 5. A spec só menciona pausa para os passos 4/5. Na prática, rodando contra a Voyage
+real hoje, duas chamadas de `embedAll` de costas uma para a outra (o `recreate` do passo 1 e o
+passo 3 imediatamente em seguida, sem pausa) disparavam `429` de forma consistente e repetível (3
+tentativas, sempre no mesmo ponto), mesmo somando só 3 chamadas dentro de uma janela de ~25
+segundos — dentro do que "3 RPM" deveria permitir em teoria. `golden-rule.test.ts`, que já espaça
+suas 4 chamadas por ~20s cada, nunca bateu nesse erro nas mesmas condições. Preferi replicar o
+cadenciamento que já é comprovadamente estável a insistir no espaçamento mínimo que a spec
+descreve — o comportamento observado (rate limit real, não hipotético) pesou mais que a letra
+exata da seção 15, que já avisa que a única motivação da pausa é operacional, não uma asserção do
+teste. Não é uma reinterpretação de contrato: as asserções continuam exatamente as que a spec
+pede, só o tempo entre duas chamadas de rede mudou.
+
+Fora isso, nenhum desvio de comportamento. As decisões acima são preenchimento de lacuna (a spec
+não fixa string de erro literal, número de teste específico ou detalhe de implementação de teste),
+não reinterpretação de contrato — em particular, a ordem sweep-antes-do-upsert (seção 8.2) foi
+implementada exatamente como especificada, e é a asserção de ordem no teste "passage que encolheu"
+(seção 15) que verifica isso.
+
+### O que eu vi e não fiz, por estar fora de escopo
+
+- **Deduplicar chunks do mesmo passage no top-k da busca** — seção 16, explicitamente das tarefas
+  04/05.
+- **Prefixar o título ao texto de cada chunk antes de embeddar** ("chunking contextual") — seção
+  16, não levantado no discovery.
+- **Ajustar `CHUNK_SIZE`/`CHUNK_OVERLAP` com base em medição** — a ferramenta (`npm run
+  eval:chunking`) foi entregue, mas não rodei um ajuste de parâmetro; o valor que ficou no índice
+  real é o default 900/150 aprovado.
+- **Migração automática da coleção** — rodei `npm run index -- --recreate` manualmente, como a
+  spec pede, e documentei os números abaixo; não escrevi nenhum script de migração.
 
 ## Revisão
 _A preencher._
 
 ## Testes
-_A preencher._
+
+- **Unidade** (`npm test` = `tsc --noEmit && vitest run`, sem rede/Docker): **162 testes, 19
+  arquivos, todos passando** (eram 113 testes/16 arquivos depois da tarefa 02; a diferença é
+  `tests/ingestion/chunk.test.ts` (16 testes novos) mais os casos novos em `point-id`,
+  `content-hash`, `indexer`, `qdrant-digests`, `trace` e `writer`). `tsc --noEmit` limpo.
+- **Integração — vetorstore** (`tests/integration/vectorstore.test.ts`, Qdrant real): **5/5
+  passando**, incluindo o caso novo (`deleteOrphanChunks` contra um servidor real: insere 3 points
+  de `chunkIndex` 0/1/2 do mesmo `passageId`, varre com `chunkCount: 1`, confirma 2 apagados e o
+  `chunkIndex: 0` sobrevivendo) — a prova de que o filtro `should`/`must`/`range` aninhado
+  realmente funciona no Qdrant, não só no mock.
+- **Integração — a prova da tarefa** (`tests/integration/ingestion-incremental.test.ts`, Qdrant e
+  Voyage reais): **1/1 passando** (70s). Os 5 passos confirmados contra uma coleção própria
+  (`camisa10-ingestion-test`): (1) `recreate` → `points: 14`; (2) no-op → `unchanged: 14, points:
+  0`, zero chamadas de embedding; (3) um passage com texto alterado → `changed: 1, points: 1`,
+  ainda 14 points; (4) o mesmo passage cresce para 3 chunks → `changed: 1, points: 3,
+  orphanPointsDeleted: 0`, `countPoints() === 16`, busca pelo vetor de um dos novos chunks devolve
+  `chunkCount: 3`; (5) o mesmo passage volta a 1 chunk → `changed: 1, points: 1,
+  orphanPointsDeleted: 2`, `countPoints() === 14` de novo — o sweep de órfãos provado de ponta a
+  ponta.
+- **Integração — recall@5** (`tests/integration/recall.test.ts`, Qdrant e Voyage reais): **2/2
+  passando**, `recall@5 = 0.929` — **idêntico** à linha de base das tarefas 01/02. Confirma o
+  invariante da seção 1: todo passage do fixture produz exatamente 1 chunk, então o chunking não
+  mexeu em nada que a avaliação de retrieval meça. Confirmado também sob `LLM_CASSETTE=replay`,
+  sem regravar o cassette.
+- **Integração — regra de ouro** (`tests/integration/golden-rule.test.ts`, sem `LLM_CASSETTE`):
+  **passou, 3/3 execuções reais** (77s). Confirmado também sob `LLM_CASSETTE=replay`, sem
+  regravar — nenhum prompt de LLM mudou nesta tarefa, como a seção 15 previa.
+- **Integração — fontes reais** (`tests/integration/live-sources.test.ts`): **2/2 passando**,
+  sem relação direta com esta tarefa, rodado para confirmar que nada quebrou.
+- **A suíte inteira via `npm run test:integration` de uma vez só bate em `429` da Voyage** quando
+  as `beforeAll` de vários arquivos disparam chamadas de embedding em sequência rápida no início da
+  execução — comportamento do tier gratuito (3 RPM/10K TPM), não uma regressão desta tarefa (o
+  mesmo tipo de limite já documentado em `docs/learning/03-ingestion-pipeline.md`). Todos os 5
+  arquivos de integração passam quando rodados individualmente, com espaçamento entre execuções —
+  os números acima são dessas execuções.
+- **`npm run index -- --recreate` contra a coleção real `camisa10`**: **completou com sucesso**
+  (4 lotes de embedding, ~65s de espera entre cada um, dentro do orçamento de tokens/minuto de
+  `embedAll` da tarefa 02). Números observados: **26 passages → 90 chunks** (900 caracteres, 150
+  de overlap), **26 classificados: 20 article, 6 preview, 0 fallbacks**, **90 points upsertados**.
+  `points_count` do Qdrant confirmado em 90 via `curl`. Segunda execução (incremental, ~70s
+  depois): **25 passages → 84 chunks** (o feed RSS perdeu 1 item da janela deslizante entre as
+  duas execuções — comportamento esperado, não um bug), **0 new, 0 changed, 25 unchanged**,
+  "nothing to do — no embeddings, no LLM calls, no writes". `points_count` continuou em 90
+  (nenhuma escrita), confirmando a convergência incremental contra o índice real.
