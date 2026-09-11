@@ -6,9 +6,11 @@ tarefas 00 e 01: **substitui a ingestão de uma linha da fatia vertical por um p
 ## Status
 - [x] Discovery
 - [x] Refinamento técnico  ← spec aprovada pelo usuário em 2026-09-11, ver nota no início da seção
-- [ ] Implementação
+- [x] Implementação  ← ver seção "Implementação"; unidade 113/113; achado real de infraestrutura
+      que bloqueou o `npm run index` de ponta a ponta contra o feed real, ver seção
 - [ ] Revisão
-- [ ] Testes
+- [x] Testes  ← unidade 113/113; integração real: vectorstore 4/4, `ingestion-incremental` 1/1
+      (a prova da tarefa), recall@5 = 0.929 (inalterado), regra de ouro 3/3 — ver "Implementação"
 
 ## Discovery
 
@@ -751,10 +753,176 @@ Três decisões que não são minhas. As duas primeiras não bloqueiam a impleme
    implementação começar.
 
 ## Implementação
-_A preencher._
+
+Implementado em 2026-09-11 contra a spec da seção "Refinamento técnico", sem reabri-la.
+
+### O que foi criado
+
+Todos os arquivos novos da seção 11: `src/vectorstore/point-id.ts` (`pointIdFromPassageId`);
+`src/ingestion/content-hash.ts` (`contentHash`); `src/ingestion/classify.ts`
+(`classifyPassageType(s)` + schema + prompt); `tests/vectorstore/point-id.test.ts`;
+`tests/ingestion/{content-hash,classify}.test.ts`; `tests/integration/ingestion-incremental.test.ts`;
+`docs/learning/03-ingestion-pipeline.md`.
+
+### O que foi alterado
+
+`src/ingestion/indexer.ts` (reescrito: diff `new`/`changed`/`unchanged`, `IndexOptions`/
+`IndexReport` da seção 7); `src/vectorstore/qdrant.ts` (`fetchDigests`); `src/vectorstore/types.ts`
+(`contentHash` obrigatório no payload, `IndexedDigest`); `src/config/models.ts`
+(`MODELS.passageClassification`); `src/cli/index-passages.ts` (flag `--recreate`, nova saída);
+`tests/ingestion/indexer.test.ts` (casos novos da seção 12, o guard de lista vazia mantido);
+`tests/integration/vectorstore.test.ts` (`contentHash` no `samplePoint` + caso de `fetchDigests`);
+`tests/integration/{recall,golden-rule}.test.ts` (`indexPassages({ recreate: true })` + mock de
+`classify.ts` com identidade); `tests/{graph,trace,writer}.test.ts` (`contentHash` nos payloads de
+amostra, só para o typecheck); `README.md`; `docs/learning/README.md`; `docs/architecture.md`.
+
+**Nada foi apagado.**
+
+### Decisões tomadas dentro do espaço que a spec deixou em aberto
+
+- **Mensagem de erro do `insertPoints` cita quantos points já entraram**, conforme a tabela da
+  seção 9 ("lança, com quantos points já entraram na mensagem") — o texto corrido da seção 7 não
+  repetia esse detalhe ao descrever o passo 10, só a tabela da seção 9 o especifica. Implementado
+  como `insertPoints failed after N point(s) were already written — <erro original>`, com a
+  exceção original em `cause`.
+- **Recomputa `pointIdFromPassageId(passage.id)` na hora de montar o `Point[]`** em vez de
+  reaproveitar o array `pointIds` calculado no passo 3 por índice do array original — porque
+  `toIndex` é um subconjunto filtrado (`new` + `changed`) com índices diferentes do array
+  `passages` completo, e recalcular (sha1 de 12 caracteres) é mais simples e mais barato que
+  carregar um `Map<passageId, pointId>` só para essa etapa. Determinístico por construção, então
+  não há risco de divergência entre as duas chamadas.
+- **Ordem de log/erro nos dois guards de colisão** (intra-lote e contra o já indexado): as duas
+  mensagens citam explicitamente os dois `passageId` envolvidos, como a seção 3 pede, mas o texto
+  exato (`point id collision between passages "X" and "Y"` / `... between indexed passage "X" and
+  new passage "Y"`) é meu, já que a spec não fixa a string literal.
+- **CLI (`index-passages.ts`): a linha "N to index (full rebuild)" substitui, e não some, a linha
+  "N new, M changed, K unchanged" no modo `recreate`** — os dois exemplos literais da seção 8
+  mostram isso (o exemplo `--recreate` não tem a linha `new/changed/unchanged`). Implementado como
+  branch condicional na função de impressão: uma linha ou outra, nunca as duas.
+- **A contagem de fallback no CLI é sempre impressa**, inclusive `(0 fallbacks)`, seguindo
+  literalmente o exemplo `--recreate` da seção 8 (que mostra `(0 fallbacks)` mesmo sem nenhuma
+  falha) — diferente do meu primeiro rascunho, que só imprimia a contagem quando `> 0`. Corrigido
+  ao reler os dois exemplos lado a lado.
+- **`tests/ingestion/indexer.test.ts`, caso de colisão de `pointIdFromPassageId`**: em vez de
+  `vi.doMock`/`vi.resetModules` dentro do teste (frágil, sujeita a efeito colateral nos testes
+  seguintes do mesmo arquivo), `point-id.ts` inteiro entrou na lista de módulos mockados no topo
+  do arquivo (`vi.mock`), com a implementação real reobtida via `vi.importActual` e usada como
+  padrão em todos os outros testes (`mockPointIdFromPassageId.mockImplementation(actualPointId.
+  pointIdFromPassageId)` no `beforeEach`). Só o teste de colisão sobrescreve o mock para devolver
+  uma constante. Resultado equivalente ao que a seção 12 descreve ("módulo point-id.ts mockado
+  para devolver constante"), sem os riscos de reset de módulo em runtime.
+- **Teste de integração, passo 3 (texto alterado)**: em vez de gastar uma terceira chamada de
+  embedding só para verificar via `search()` que o texto do point mudou, o teste captura o vetor
+  já gerado pela própria chamada de indexação (via `vi.spyOn` sobre `embedAll`, com implementação
+  real por trás — a spy intercepta sem substituir o comportamento) e usa esse vetor como query de
+  `search()`. Resultado: a mesma asserção que a spec pede ("o `search()` daquele point devolve o
+  texto novo"), dentro do orçamento de "2 chamadas de embedding no total" que a própria seção 12
+  define para o arquivo.
+
+### Onde a implementação não seguiu a spec ao pé da letra, e por quê
+
+Nenhum desvio de comportamento. Os pontos acima são preenchimento de lacuna (a spec não fixa
+string de erro literal nem decide entre duas formas equivalentes de escrever um teste), não
+reinterpretação de contrato.
+
+### Achado real de infraestrutura: o feed real excede o limite de tokens/minuto da Voyage em modo `recreate`
+
+Ao rodar `npm run index` de verdade contra a coleção `camisa10` (não a de teste), a chamada a
+`embedAll` falhou consistentemente com `429` e a mensagem de rate limit da Voyage — mesmo depois
+de esperar até 4 minutos entre tentativas. Investigado (não é código quebrado nem timing): o feed
+real tem hoje 35 passages, com ~73.900 caracteres de título+texto somados — **~18.500 tokens
+estimados** (`chars/4`) numa única requisição. O tier gratuito da Voyage sem cartão cadastrado
+tem **10.000 TPM** (tokens por minuto), então uma única chamada de ~18.500 tokens excede o teto
+sozinha — esperar não ajuda, porque o problema não é "muitas chamadas numa janela", é **uma
+chamada maior que a janela inteira**. Confirmado isolando a causa: uma chamada de `embedAll` com
+8 passages reais (bem abaixo do teto) teve sucesso imediato, logo depois de quatro tentativas
+reais consecutivas com os 35 passages falharem.
+
+Isso **não é um bug desta implementação**: `embedAll` manda o lote inteiro numa única requisição
+desde a tarefa 00, e a seção 13 desta spec (fora de escopo) proíbe explicitamente mudar isso
+("Lotear as chamadas à Voyage... o feed traz dezenas de itens, não milhares" — a suposição de que
+"dezenas de itens" caberia com folga se provou errada só quando medida contra o texto real, não
+contra uma estimativa). Segui a regra "se a spec estiver impossível, pare e reporte — não
+conserte por conta própria": **não** modifiquei `embedAll` nem `indexer.ts` para lotear as
+chamadas à Voyage, porque isso reabriria uma decisão de escopo que a spec fechou explicitamente.
+
+O que isso significa na prática, hoje:
+
+- `npm run index -- --recreate` contra o feed real atual **não completa** no tier gratuito da
+  Voyage sem cartão — falha em `embedAll`, antes de `ensureCollection({ recreate: true })` (passo
+  8), então **a coleção real não foi tocada**: confirmado com `curl` contra o Qdrant antes e
+  depois de cada tentativa, `points_count` permaneceu em 14 (o estado anterior a esta tarefa) em
+  todas as tentativas.
+- `npm run index` incremental contra a coleção real também não completa por este exato motivo, e
+  pelo mesmo motivo qualquer execução real inicial (tudo "new") tende a bater no mesmo teto,
+  porque o volume de texto novo de uma primeira convergência é comparável ao de um `--recreate`.
+  Uma vez que a coleção estivesse convergida (poucos passages `new`/`changed` por execução), o
+  volume por chamada cairia bastante e o problema tende a desaparecer sozinho — mas não há como
+  chegar a esse estado sem que a primeira convergência complete.
+- Isso é **independente** desta tarefa: o mesmo teto já bloquearia o `indexPassages()` de hoje
+  (pré-tarefa 02, sempre `recreate`) contra o feed atual de 35 itens. Não é uma regressão
+  introduzida aqui — é a primeira vez que alguém tentou rodar `npm run index` contra o feed real
+  de verdade neste tamanho (a tarefa 01 não chegou a confirmar isso rodando: ver a nota da tarefa
+  01 sobre `npm run index` nunca ter sido executado).
+
+**Decisão que não é minha**: destravar isso exige ou (a) o usuário cadastrar um cartão na Voyage
+(o aviso da própria API diz que o limite sobe "depois de alguns minutos" após isso, e os 200M
+tokens grátis da série 3 continuam valendo — não é cobrança automática, é só a remoção do teto
+reduzido), ou (b) reabrir a decisão de lotear `embedAll` numa tarefa própria (fora do escopo
+aprovado aqui). Não fiz nenhuma das duas.
+
+### O que foi visto e não foi feito, por estar fora de escopo
+
+Nada além do que a seção 13 já lista. Não toquei em `tagTeams`, `matchId`, chunking, cache de
+`getFacts`, `--dry-run`, `tsconfig.json`, nem lotear `embedAll` (ver achado acima — visto, não
+corrigido, por decisão explícita de escopo).
 
 ## Revisão
 _A preencher._
 
 ## Testes
-_A preencher._
+
+- **Unidade** (`npm test` = `tsc --noEmit && vitest run`, sem rede/Docker): **113 testes, 16
+  arquivos, todos passando** (eram 86 depois da tarefa 01; a diferença são
+  `tests/vectorstore/point-id.test.ts`, `tests/ingestion/{content-hash,classify}.test.ts` e os
+  casos novos de `tests/ingestion/indexer.test.ts`).
+- **Integração — vectorstore** (`tests/integration/vectorstore.test.ts`, Qdrant real):
+  **4/4 passando**, incluindo o caso novo de `fetchDigests` (2 points inseridos, consultados por 3
+  ids incluindo um inexistente — devolve os 2 digests certos, omite o ausente).
+- **Integração — a prova da tarefa** (`tests/integration/ingestion-incremental.test.ts`, Qdrant e
+  Voyage reais, `classify.ts` mockado com identidade): **1/1 passando**. Sequência confirmada
+  contra uma coleção própria (`camisa10-ingestion-test`, 14 passages do fixture): `recreate` →
+  `points: 14`, `countPoints() === 14`; segunda execução sem opções → `unchanged: 14, points: 0`,
+  **zero chamadas de embedding** (`vi.spyOn` sobre `embedAll`); terceira execução com o texto de
+  um passage alterado → `changed: 1, points: 1`, `countPoints()` continua 14 (atualizou, não
+  duplicou), e `search()` pelo vetor daquela indexação devolve o texto novo.
+- **Integração — recall@5** (`tests/integration/recall.test.ts`, Qdrant e Voyage reais,
+  `beforeAll` chamando `indexPassages({ recreate: true })` + `classify.ts` mockado com
+  identidade): **2/2 passando**, `recall@5 = 0.929` — **idêntico** ao número da tarefa 01,
+  confirmando que trocar `indexPassages()` sem opções por `indexPassages({ recreate: true })` e
+  mockar a classificação não mudou retrieval. O único miss continua sendo `e01` (o caso
+  adversarial do apelido "alviverde" sem o nome do time, já registrado nas tarefas 00/01).
+- **Integração — regra de ouro** (`tests/integration/golden-rule.test.ts`, sem `LLM_CASSETTE`):
+  **passou, 3/3 execuções reais** (85s de execução, incluindo as duas pausas de 20s já
+  documentadas na tarefa 01). Levou 6 tentativas reais até fechar limpo: 2 batidas em "invalid
+  setup" (variância conhecida do score do p07 perto do corte do `k=5`, documentada na tarefa 00) e
+  3 em `529 overloaded_error` da própria API da Anthropic (instabilidade transitória do lado
+  deles, sem relação com o código desta tarefa — confirmado pelo `request_id` de cada erro sendo
+  distinto e pela mensagem `"Overloaded"` genérica).
+- **`LLM_CASSETTE=replay`** sobre `recall.test.ts` + `golden-rule.test.ts` + `vectorstore.test.ts`:
+  **7/7 passando**, sem regravar `tests/integration/__cassettes__/llm-calls.json` — confirma a
+  afirmação da seção 12 de que os prompts de `extractEntity`/`planner`/`writer` não mudaram nesta
+  tarefa. `tests/integration/ingestion-incremental.test.ts` **não** está coberto pelo cassette (é
+  arquivo novo, chama a Voyage de verdade sempre) — rodar a suíte inteira sob
+  `LLM_CASSETTE=replay` falha nesse arquivo especificamente, com um erro claro de "sem gravação
+  para esta requisição", não um erro silencioso; isso é esperado e não corrigido, por não estar
+  no pedido de regravação de cassette desta tarefa.
+- **`npm run index` contra a coleção real `camisa10`**: **bloqueado por um teto de infraestrutura
+  real da Voyage** (10.000 tokens/minuto no tier gratuito sem cartão vs. ~18.500 tokens estimados
+  para os 35 passages do feed real hoje, numa única requisição não loteada por desenho — spec §13,
+  fora de escopo). Ver a seção "Achado real de infraestrutura" acima para os números e a
+  investigação. A coleção real (`camisa10`, 14 points herdados de antes desta tarefa) não foi
+  tocada por nenhuma tentativa — confirmado via `curl` no Qdrant antes/depois. O comportamento sob
+  esse teto está correto (falha antes de gastar `ensureCollection`/`insertPoints`, exatamente como
+  a tabela de erro da seção 9 pede), só não pôde ser demonstrado de ponta a ponta contra o volume
+  real atual do feed.
