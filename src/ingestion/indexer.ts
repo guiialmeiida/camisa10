@@ -63,12 +63,34 @@ export async function indexPassages(options?: IndexOptions): Promise<IndexReport
 
   const pointIds = passages.map((passage) => pointIdFromPassageId(passage.id));
 
-  // Intra-batch collision guard: two different passage ids truncating to the same
-  // 48-bit point id would otherwise silently overwrite one another.
+  // Intra-batch guards: pointIds is a 1:1 .map() over passages, so an out-of-bounds read
+  // here can only mean an invariant broke elsewhere — fail loud instead of silently
+  // dropping the passage from new/changed/unchanged (which the collision guards right
+  // below exist specifically to avoid doing for the same underlying reason).
+  function pointIdAt(index: number): number {
+    const pointId = pointIds[index];
+    if (pointId === undefined) {
+      throw new Error(`indexPassages: no point id computed for passage at index ${index} — this is a bug`);
+    }
+    return pointId;
+  }
+
+  // The same passage id appearing twice (a dedup bug upstream, e.g. src/sources/passages.ts)
+  // would otherwise classify and embed it twice, paying for it twice, and upsert it to the
+  // same point id — the second write silently winning with no signal anything was wrong.
+  const seenPassageIds = new Set<string>();
+  for (const passage of passages) {
+    if (seenPassageIds.has(passage.id)) {
+      throw new Error(`indexPassages: duplicate passage id "${passage.id}" from the source`);
+    }
+    seenPassageIds.add(passage.id);
+  }
+
+  // Two different passage ids truncating to the same 48-bit point id would otherwise
+  // silently overwrite one another.
   const seenByPointId = new Map<number, string>();
   passages.forEach((passage, index) => {
-    const pointId = pointIds[index];
-    if (pointId === undefined) return;
+    const pointId = pointIdAt(index);
     const seenPassageId = seenByPointId.get(pointId);
     if (seenPassageId !== undefined && seenPassageId !== passage.id) {
       throw new Error(
@@ -98,8 +120,7 @@ export async function indexPassages(options?: IndexOptions): Promise<IndexReport
   const hashByPassageId = new Map<string, string>();
 
   passages.forEach((passage, index) => {
-    const pointId = pointIds[index];
-    if (pointId === undefined) return;
+    const pointId = pointIdAt(index);
     const hash = contentHash(passage);
     hashByPassageId.set(passage.id, hash);
     const digest = digestByPointId.get(pointId);
