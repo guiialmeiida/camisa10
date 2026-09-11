@@ -124,6 +124,64 @@ describe("chunkText", () => {
     }
   });
 
+  it("terminates and produces no empty chunks on text with irregular (multi-space) whitespace", () => {
+    // Regression: an earlier version of advanceToWordStart only checked the character
+    // right before `from`, which treats any position deep inside a run of 2+ spaces as
+    // "already a word start" and returns it unchanged — start then never advances, and
+    // chunkText hangs forever. Both cases below reproduce that (confirmed hanging
+    // before the fix, via a 5s watchdog run outside the test suite).
+    const start = Date.now();
+    const chunks1 = chunkText(`${"palavra ".repeat(200)}fim  ${"z".repeat(950)}`);
+    expect(Date.now() - start).toBeLessThan(2000);
+    expect(chunks1.every((chunk) => chunk.length > 0)).toBe(true);
+
+    const chunks2 = chunkText(`aa  ${"b".repeat(2000)}`);
+    expect(chunks2.every((chunk) => chunk.length > 0)).toBe(true);
+  });
+
+  it("does not produce an empty chunk when a hard cut lands exactly on a run of whitespace", () => {
+    // Regression: a word exactly `size` characters long, followed by 2+ spaces, makes
+    // the hard-cut `end` land precisely at the start of that whitespace run. `cap` used
+    // to skip normalization in this case (it only normalized when the boundary was
+    // *found* via the window search, not when a hard cut coincidentally landed on
+    // whitespace too) — the next chunk's window then started on whitespace and produced
+    // an empty chunk.
+    const chunks = chunkText("a" + " ".repeat(300) + "b", { size: 100, overlap: 20 });
+    expect(chunks).toEqual(["a", "b"]);
+  });
+
+  it("preserves character-level coverage across many irregularly-spaced inputs (fuzz-style regression)", () => {
+    // A fixed (not randomized — deterministic in CI) battery of size/overlap/spacing
+    // combinations, covering the shapes that broke chunkText during review: multiple
+    // consecutive spaces of varying run length, at varying alignment relative to `size`.
+    const cases: { size: number; overlap: number; spaceRuns: number[] }[] = [
+      { size: 11, overlap: 4, spaceRuns: [1, 2, 3, 4] },
+      { size: 30, overlap: 10, spaceRuns: [1, 2, 5, 6] },
+      { size: 50, overlap: 15, spaceRuns: [2, 2, 2, 2, 2] },
+      { size: 900, overlap: 150, spaceRuns: [1, 3, 7] },
+    ];
+
+    for (const { size, overlap, spaceRuns } of cases) {
+      const words = Array.from({ length: 40 }, (_, index) => `w${String(index).padStart(3, "0")}`);
+      const text = words.map((word, index) => word + " ".repeat(spaceRuns[index % spaceRuns.length] as number)).join("").trim();
+
+      const chunks = chunkText(text, { size, overlap });
+
+      expect(chunks.every((chunk) => chunk.length > 0)).toBe(true);
+      expect(chunks.every((chunk) => chunk.length <= size)).toBe(true);
+
+      // Word-set coverage, not character-multiset equality: overlap legitimately
+      // duplicates content across chunks, so counting characters would over-count on
+      // purpose. Every word here is distinct and shorter than every tested `size`, so
+      // "every word appears somewhere" is the right invariant (same approach as the
+      // "covers every word" test above).
+      const coveredWords = new Set(chunks.flatMap((chunk) => chunk.split(/\s+/)));
+      for (const word of words) {
+        expect(coveredWords.has(word)).toBe(true);
+      }
+    }
+  });
+
   it("is deterministic: the same input produces the same array across two calls", () => {
     const text = wordsText(80);
     expect(chunkText(text, { size: 60, overlap: 12 })).toEqual(chunkText(text, { size: 60, overlap: 12 }));
