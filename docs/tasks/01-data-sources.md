@@ -7,10 +7,10 @@ servindo de rede.
 ## Status
 - [x] Discovery
 - [x] Refinamento técnico  ← spec aprovada pelo usuário em 2026-09-10, ver nota no início da seção
-- [x] Implementação  ← ver seção "Implementação". Pendência: `FOOTBALL_DATA_TOKEN` real (usuário)
-- [ ] Revisão
-- [x] Testes  ← unidade 76/76; integração: vectorstore 3/3, recall@5 = 0.929, regra de ouro 3/3;
-      `live-sources.test.ts` não verificado (token pendente) — ver "Implementação" e "Testes"
+- [x] Implementação  ← ver seção "Implementação"; `teams.json` validado com token real
+- [x] Revisão  ← 9 achados, todos corrigidos — ver seção "Revisão"
+- [x] Testes  ← unidade 86/86; integração: vectorstore 3/3, recall@5 = 0.929, regra de ouro 3/3,
+      live-sources 2/2 — ver "Implementação", "Revisão" e "Testes"
 
 ## Discovery
 
@@ -1261,7 +1261,63 @@ sobrevivendo à allowlist (confirmado por script depois da gravação).
 pendência de chave.
 
 ## Revisão
-_A preencher — decisão do usuário, fora desta implementação._
+
+Revisão rodada em 2026-09-10, **antes do PR** (diferente da tarefa 00, onde o revisor só rodou
+depois do merge). Confirmou a regra de ouro de pé — nenhum caminho leva número do RSS até a
+resposta — e achou 9 problemas reais, 4 deles com reprodução ao vivo. Corrigidos em 6 commits:
+
+1. **🔴 Rodada inteira corrompida virava "nenhum jogo encontrado".** Quando o bug de corrupção
+   do football-data.org (documentado acima) atingia todas as partidas de uma resposta,
+   `mapMatches` descartava todas em silêncio e `getFacts` devolvia `matches: []` — indistinguível
+   de "a API respondeu que não há jogo". O writer então afirmava isso ao usuário, o que é falso.
+   Reproduzido ao vivo (duas execuções de `npm run sources`, uma vazia, uma normal). Corrigido:
+   `mapMatches` agora lança quando uma resposta não-vazia mapeia pra zero partidas — é o caso "a
+   fonte primária falhou" da tabela de erro (§13), não "a fonte respondeu que não há".
+   `live-sources.test.ts` ganhou `expect(facts.matches.length).toBeGreaterThan(0)`.
+2. **🔴 Time sintético nunca entrava em `Facts.teams`.** Um clube fora do `teams.json`
+   (`teamIdFromFootballData` degradando pra slug sintético) nunca tinha seu nome adicionado à
+   lista de times — então o slug cru ("cr-vasco-da-gama") vazava pro prompt do writer e pra
+   resposta do usuário. Corrigido: `mapMatches` agora coleta os times sintéticos que criou, e
+   `facts.ts` os mescla em `Facts.teams`.
+3. **🔴 `tagTeams` marcava "vitória" e "santos" como os clubes**, mesmo em frases sobre F1 ou a
+   seleção — porque a normalização derrubava maiúscula, que era justamente o sinal que separava
+   o clube (nome próprio) da palavra comum. Reproduzido ao vivo em `npm run sources`. Corrigido:
+   `tagTeams` agora preserva caixa (só dobra acento), então "Vitória" com maiúscula continua
+   casando e "vitória" minúscula, não.
+4. **🟡 Um teste que não podia falhar.** "api-football nunca é chamado sem jogo ao vivo" usava um
+   router que lançava — mas `fetchLiveMatches` engole toda exceção por contrato, então o teste
+   passava mesmo removendo a lógica que deveria proteger. Corrigido: o teste agora afirma sobre
+   `fetchSpy.mock.calls`, como o teste de isolamento de fonte já fazia.
+5. **🟡 Fixture de teste dessincronizado do `teams.json` corrigido** (o commit anterior corrigiu
+   os `footballDataId` reais, mas não atualizou o payload gravado) — produzia "Corinthians vira
+   Flamengo" ao rodar `mapMatches` sobre ele. Reproduzido ao vivo. Reescrito com ids
+   cross-checados contra o `teams.json`.
+6. **🟡 Um `<pubDate>` ilegível derrubava o feed inteiro.** `toSaoPauloIso` lançando dentro do
+   laço de `parseFeed`, sem proteção, propagava pra `fetchFeed` → `listPassages` → `npm run
+   index` recusando rodar. Reproduzido ao vivo. Corrigido: item com data ilegível é descartado
+   com `console.warn`, só o feed inteiro fora do ar continua lançando (§9/§13).
+7. **Aviso de `API_FOOTBALL_KEY` ausente nunca disparava na prática** — morava dentro de
+   `fetchLiveMatches`, que só é chamada quando a chave existe. Movido para `facts.ts`, onde a
+   decisão de chamar ou não é tomada.
+8. **Suspeitas do revisor, endereçadas por precaução** (nenhuma reproduzida ao vivo, mas o padrão
+   de risco já mordeu este projeto uma vez): schema da API-Football validando a resposta
+   mundial inteira antes do filtro por liga (agora filtra primeiro, valida por item depois — uma
+   liga estranha não derruba mais o Brasileirão); `toSaoPauloIso` sem exigir fuso explícito na
+   entrada (agora exige — é exatamente o bug que a revisão da tarefa 00 já corrigiu uma vez, em
+   `match-format.ts`); slug sintético sem sanitização contra o padrão `teamRecordSchema` (agora
+   filtra pra `[a-z0-9-]`).
+9. **Menores**: `fetchCompetition` ganhou a memoização de processo que a spec §8 já pedia;
+   `applyLiveScores` agora avisa quando um par de times não casa; `npm run sources` mostra "(no
+   matches for this matchweek)" em vez de nada, e a linha de passages volta a bater com o
+   exemplo da spec (`N feeds, M items`); `src/sources/README.md` parou de anunciar
+   `tabela`/`escalação` como entregues; `docs/architecture.md` ganhou `alias`/`feed` no
+   glossário.
+
+`npm test` depois de tudo: **86 testes** (eram 76), todos passando. `LLM_CASSETTE=replay npm run
+test:integration`: 6 passando, 2 pulados, sem mudança de comportamento. `live-sources.test.ts`
+contra a API real, `npm run sources` contra a API real: verificados de novo depois das correções,
+com nomes de time corretos de ponta a ponta (rodada 27 completa, sem slug cru, sem par de time
+trocado).
 
 ## Testes
 Além dos testes de unidade dos nós, dois que valem para o projeto inteiro (ver seção
