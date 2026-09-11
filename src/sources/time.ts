@@ -15,7 +15,19 @@ const SAO_PAULO_OFFSET_HOURS = -3;
  * would solve the general case, but for a fixed offset it's machinery the user doesn't need to
  * understand.
  */
+// `new Date("2026-09-06T00:30:00")` — no "Z", no numeric offset — is parsed in the
+// *host's* local timezone, which is exactly the bug this function exists to prevent.
+// Both football APIs send "Z" and RSS's RFC-822 pubDate always carries a zone (numeric
+// or a named abbreviation like "GMT"), so a real input should always match one of
+// these; requiring it explicitly turns a silent host-timezone dependency into a loud
+// error instead of letting one slip in through an unanticipated input shape.
+const HAS_EXPLICIT_ZONE = /(Z|[+-]\d{2}:?\d{2}|\s[A-Z]{2,5})$/;
+
 export function toSaoPauloIso(input: string): string {
+  if (!HAS_EXPLICIT_ZONE.test(input.trim())) {
+    throw new Error(`date has no explicit timezone, refusing to guess the host's: ${input}`);
+  }
+
   const date = new Date(input);
   if (Number.isNaN(date.getTime())) {
     throw new Error(`not a valid date: ${input}`);

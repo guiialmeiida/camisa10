@@ -34,28 +34,28 @@ const apiFootballFixtureSchema = z.object({
 const apiFootballResponseSchema = z.object({
   // api-sports.io sends `[]` on success and an object on failure (e.g. { token: "..." }).
   errors: z.union([z.array(z.string()), z.record(z.string(), z.string())]),
-  response: z.array(apiFootballFixtureSchema),
+  // Each element gets validated individually, after the league filter below — not with
+  // apiFootballFixtureSchema here. /fixtures?live=all returns every live match in the
+  // world; validating the strict per-fixture shape at this level means a format quirk
+  // in some other league we don't even read would fail the whole batch and drop BSA's
+  // enrichment along with it.
+  response: z.array(z.unknown()),
 });
-
-let warnedMissingKey = false;
 
 /**
  * `[]` when the key is missing, the API fails, or there's no live match. Never throws:
  * this is an enrichment source, so if it falls over the answer still carries
  * football-data.org's score, which is the primary source — letting this one throw would
  * invert the hierarchy the discovery decided on.
+ *
+ * A missing key isn't warned about here — facts.ts is the only real caller, and it
+ * already decides whether to call this function based on the key's presence, so a
+ * warning here would either never fire (facts.ts already skipped the call) or duplicate
+ * the one facts.ts prints when it matters (there's actually a live match to enrich).
  */
 export async function fetchLiveMatches(): Promise<LiveMatch[]> {
   const { API_FOOTBALL_KEY } = loadEnv();
-  if (!API_FOOTBALL_KEY) {
-    if (!warnedMissingKey) {
-      console.warn(
-        "api-football.ts: API_FOOTBALL_KEY is not set — live match scores will only come from football-data.org, which may lag",
-      );
-      warnedMissingKey = true;
-    }
-    return [];
-  }
+  if (!API_FOOTBALL_KEY) return [];
 
   let raw: unknown;
   try {
@@ -87,8 +87,20 @@ export async function fetchLiveMatches(): Promise<LiveMatch[]> {
 
   const liveMatches: LiveMatch[] = [];
 
-  for (const fixture of parsed.data.response) {
-    if (fixture.league.id !== BSA_LEAGUE_ID) continue;
+  for (const rawFixture of parsed.data.response) {
+    // Cheap, defensive pre-filter before the strict schema below — league is the only
+    // field we need to read speculatively, since it decides whether we even care.
+    const leagueId = (rawFixture as { league?: { id?: unknown } } | null)?.league?.id;
+    if (leagueId !== BSA_LEAGUE_ID) continue;
+
+    const fixtureParsed = apiFootballFixtureSchema.safeParse(rawFixture);
+    if (!fixtureParsed.success) {
+      console.warn(
+        `api-football.ts: a fixture in league ${BSA_LEAGUE_ID} failed validation, skipped:\n${z.prettifyError(fixtureParsed.error)}`,
+      );
+      continue;
+    }
+    const fixture = fixtureParsed.data;
 
     const homeTeam = await resolveTeamId(fixture.teams.home.name);
     const awayTeam = await resolveTeamId(fixture.teams.away.name);
@@ -125,7 +137,12 @@ export function applyLiveScores(matches: Match[], live: LiveMatch[]): Match[] {
     if (match.status !== "live") return match;
 
     const found = live.find((l) => l.homeTeam === match.homeTeam && l.awayTeam === match.awayTeam);
-    if (!found) return match;
+    if (!found) {
+      console.warn(
+        `api-football.ts: no live-score match for ${match.homeTeam} x ${match.awayTeam} (id ${match.id}) — keeping football-data.org's score`,
+      );
+      return match;
+    }
 
     return { ...match, score: found.score, minute: found.minute };
   });
