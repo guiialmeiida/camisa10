@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getFacts } from "../../src/sources/facts.ts";
+import { resetCompetitionCacheForTests } from "../../src/sources/football-data.ts";
 import { listPassages } from "../../src/sources/passages.ts";
 
 const FIXTURES_DIR = path.join(import.meta.dirname, "..", "fixtures", "http");
@@ -35,6 +36,7 @@ describe("getFacts (fetch mocked)", () => {
 
   beforeEach(async () => {
     process.env = { ...process.env, ...fakeEnv };
+    resetCompetitionCacheForTests();
     competitionJson = await readFixture("football-data-competition.json");
     matchweekJson = await readFixture("football-data-matchweek.json");
     fetchSpy = vi.spyOn(globalThis, "fetch");
@@ -126,15 +128,21 @@ describe("getFacts (fetch mocked)", () => {
       ],
     });
 
+    // fetchLiveMatches swallows every failure by contract (never throws), so a router
+    // that throws on this host doesn't prove the call never happened — it would pass
+    // even if the hasLiveMatch guard in facts.ts were deleted. Assert on the call log.
     routeFetch({
       footballData: footballDataRouter(noLiveMatchweek),
-      apiFootball: () => {
-        throw new Error("api-football should not have been called");
-      },
+      apiFootball: () => jsonResponse(JSON.stringify({ errors: [], response: [] })),
     });
 
     const facts = await getFacts({});
     expect(facts.matches).toHaveLength(1);
+
+    const calledApiFootball = fetchSpy.mock.calls.some(
+      (call: unknown[]) => hostOf(call[0]) === "v3.football.api-sports.io",
+    );
+    expect(calledApiFootball).toBe(false);
   });
 
   it("resolves with football-data.org's score when api-football returns 500", async () => {
@@ -150,6 +158,57 @@ describe("getFacts (fetch mocked)", () => {
     if (live?.status === "live") {
       expect(live.score).toEqual({ home: 0, away: 0 }); // football-data.org's own score, unenriched
     }
+  });
+
+  it("adds a synthetic team to Facts.teams instead of leaving its display name as a raw slug", async () => {
+    const matchweekWithUnknownTeam = JSON.stringify({
+      competition: { id: 2013, name: "Campeonato Brasileiro Série A", code: "BSA" },
+      matches: [
+        {
+          id: 1,
+          utcDate: "2026-09-06T00:30:00Z",
+          status: "FINISHED",
+          matchday: 12,
+          venue: "Estádio X",
+          homeTeam: { id: 1769, name: "SE Palmeiras" },
+          awayTeam: { id: 999999, name: "Novo Time FC" },
+          score: { fullTime: { home: 2, away: 0 } },
+        },
+      ],
+    });
+
+    routeFetch({ footballData: footballDataRouter(matchweekWithUnknownTeam) });
+
+    const facts = await getFacts({});
+
+    expect(facts.matches[0]).toMatchObject({ homeTeam: "palmeiras", awayTeam: "novo-time-fc" });
+    expect(facts.teams.find((team) => team.id === "novo-time-fc")).toEqual({
+      id: "novo-time-fc",
+      name: "Novo Time FC",
+      nicknames: [],
+    });
+  });
+
+  it("throws instead of reporting an empty matchweek when every match fails to map", async () => {
+    const allCorrupted = JSON.stringify({
+      competition: { id: 2013, name: "Campeonato Brasileiro Série A", code: "BSA" },
+      matches: [
+        {
+          id: 1,
+          utcDate: "2026-09-06T00:30:00Z",
+          status: "2026-09-11 23:00:00Z",
+          matchday: 12,
+          venue: null,
+          homeTeam: { id: 1769, name: "SE Palmeiras" },
+          awayTeam: { id: 1765, name: "Fluminense FC" },
+          score: { fullTime: { home: null, away: null } },
+        },
+      ],
+    });
+
+    routeFetch({ footballData: footballDataRouter(allCorrupted) });
+
+    await expect(getFacts({})).rejects.toThrow(/corrupted upstream/);
   });
 
   it("only ever requests api.football-data.org and v3.football.api-sports.io — never the RSS host", async () => {

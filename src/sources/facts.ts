@@ -31,7 +31,8 @@ export async function getFacts(filter?: FactsFilter): Promise<Facts> {
 
   const matchweek = filter?.matchweek ?? info.currentMatchday;
   const rawMatches = await fetchMatchweek(matchweek);
-  let matches = await mapMatches(rawMatches);
+  const mapped = await mapMatches(rawMatches);
+  let matches = mapped.matches;
 
   // Applied client-side: ~10 matches per matchweek, not worth spending another
   // football-data.org request (10 req/min) to do what a .filter() already does.
@@ -41,15 +42,31 @@ export async function getFacts(filter?: FactsFilter): Promise<Facts> {
   }
 
   const hasLiveMatch = matches.some((match) => match.status === "live");
-  if (hasLiveMatch && loadEnv().API_FOOTBALL_KEY) {
-    matches = applyLiveScores(matches, await fetchLiveMatches());
+  if (hasLiveMatch) {
+    const { API_FOOTBALL_KEY } = loadEnv();
+    if (API_FOOTBALL_KEY) {
+      matches = applyLiveScores(matches, await fetchLiveMatches());
+    } else if (!warnedMissingKey) {
+      console.warn(
+        "facts.ts: API_FOOTBALL_KEY is not set — the live match's score comes only from " +
+          "football-data.org, which may lag behind the real result",
+      );
+      warnedMissingKey = true;
+    }
   }
+
+  // Spec §5: a synthetic team (a club football-data.org knows about that teams.json
+  // doesn't) still belongs in Facts.teams — otherwise its display name never reaches
+  // the user, and writer/trace fall back to printing the raw slug instead of a name.
+  const allTeams = mapped.syntheticTeams.length > 0 ? [...teams, ...mapped.syntheticTeams] : teams;
 
   return {
     competition: { id: COMPETITION.id, name: info.name, season: info.season },
     matchweek,
     matches,
-    teams,
+    teams: allTeams,
     source: "api",
   };
 }
+
+let warnedMissingKey = false;

@@ -17,6 +17,11 @@ describe.skipIf(shouldSkip)("live sources: structural invariants only, no ground
 
       expect(facts.matchweek).toBeGreaterThanOrEqual(1);
       expect(facts.matchweek).toBeLessThanOrEqual(38);
+      // A real matchweek always has games. An empty list here would mean the invariant
+      // loop below never ran — which is exactly how the football-data.org status-field
+      // corruption bug (documented in this task's Implementação section) used to hide
+      // behind a green test instead of failing loudly.
+      expect(facts.matches.length).toBeGreaterThan(0);
 
       const teamIds = new Set(facts.teams.map((team) => team.id));
       for (const match of facts.matches) {

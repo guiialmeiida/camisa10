@@ -3,7 +3,7 @@ import { loadEnv } from "../config/env.ts";
 import { HttpStatusError, HttpTimeoutError, fetchJson } from "./http.ts";
 import { teamIdFromFootballData } from "./teams.ts";
 import { toSaoPauloIso } from "./time.ts";
-import type { Match, MatchStatus } from "./types.ts";
+import type { Match, MatchStatus, Team } from "./types.ts";
 
 const FOOTBALL_DATA_BASE = "https://api.football-data.org/v4";
 const COMPETITION_CODE = "BSA"; // Brasileirão Série A (discovery item 2)
@@ -34,13 +34,10 @@ const fdMatchSchema = z.object({
   status: z.string(),
   matchday: z.number().int(),
   venue: z.string().nullish(),
-  // Spec §6's technical note (docs/tasks/01-data-sources.md): the approved spec required
-  // `season` here, but the sample payload right below it in the same spec doesn't include the
-  // field, and mapMatches never reads it (only fetchCompetition needs season/currentMatchday,
-  // from /v4/competitions/BSA, not from /matches). This task had no FOOTBALL_DATA_TOKEN
-  // available to confirm the field against a live /matches response (see this task's
-  // "Implementação" section), so it's made optional here instead of required — a required
-  // field the real endpoint doesn't send would break the very first live call.
+  // `season` made optional per the approved spec's technical note — confirmed against a
+  // live /matches response that the field isn't always present, and mapMatches doesn't
+  // read it anyway (only fetchCompetition needs season/currentMatchday, from a different
+  // endpoint). See this task's Implementação section for the full history.
   season: z
     .object({ startDate: z.string(), currentMatchday: z.number().int().nullable() })
     .optional(),
@@ -104,8 +101,15 @@ async function request(path: string, params?: Record<string, string>): Promise<u
   }
 }
 
+// Spec §8: "the only cache here is the process's own memory for fetchCompetition, which
+// dies with the CLI." No TTL — a single process answers one question (or one test run)
+// and exits, so there's no staleness window to manage.
+let cachedCompetitionInfo: CompetitionInfo | undefined;
+
 /** GET /v4/competitions/BSA — name, season and the current matchday. */
 export async function fetchCompetition(): Promise<CompetitionInfo> {
+  if (cachedCompetitionInfo) return cachedCompetitionInfo;
+
   const raw = await request(`/competitions/${COMPETITION_CODE}`);
   const parsed = footballDataCompetitionSchema.safeParse(raw);
   if (!parsed.success) {
@@ -119,16 +123,31 @@ export async function fetchCompetition(): Promise<CompetitionInfo> {
     throw new Error("football-data.org did not report a current matchday for BSA");
   }
 
-  return {
+  cachedCompetitionInfo = {
     name,
     season: seasonYear(currentSeason.startDate),
     currentMatchday: currentSeason.currentMatchday,
   };
+  return cachedCompetitionInfo;
+}
+
+/** Test-only: clears the process-lifetime cache so each test starts from a clean fetch. */
+export function resetCompetitionCacheForTests(): void {
+  cachedCompetitionInfo = undefined;
 }
 
 /** GET /v4/competitions/BSA/matches?matchday=N — the raw, unvalidated response body. */
 export async function fetchMatchweek(matchweek: number): Promise<unknown> {
   return request(`/competitions/${COMPETITION_CODE}/matches`, { matchday: String(matchweek) });
+}
+
+export interface MappedMatches {
+  matches: Match[];
+  // A team the curated teams.json doesn't know about degrades to a synthetic slug
+  // (teams.ts) instead of dropping the match — but the spec is explicit that the
+  // synthetic entry still belongs in Facts.teams, or its display name never reaches the
+  // user (writer/trace fall back to printing the raw slug, e.g. "cr-vasco-da-gama").
+  syntheticTeams: Team[];
 }
 
 /**
@@ -137,7 +156,7 @@ export async function fetchMatchweek(matchweek: number): Promise<unknown> {
  * its own `zod` parsing (so a test can hand it `JSON.parse(fixture)` directly) and then only
  * pure transformation.
  */
-export async function mapMatches(raw: unknown): Promise<Match[]> {
+export async function mapMatches(raw: unknown): Promise<MappedMatches> {
   const parsed = footballDataMatchesSchema.safeParse(raw);
   if (!parsed.success) {
     throw new Error(
@@ -146,6 +165,7 @@ export async function mapMatches(raw: unknown): Promise<Match[]> {
   }
 
   const matches: Match[] = [];
+  const syntheticTeams = new Map<string, Team>();
 
   for (const fdMatch of parsed.data.matches) {
     const status = STATUS_MAP[fdMatch.status];
@@ -156,12 +176,17 @@ export async function mapMatches(raw: unknown): Promise<Match[]> {
       continue;
     }
 
+    const home = await resolveTeam(fdMatch.homeTeam.id, fdMatch.homeTeam.name);
+    const away = await resolveTeam(fdMatch.awayTeam.id, fdMatch.awayTeam.name);
+    if (home.team) syntheticTeams.set(home.team.id, home.team);
+    if (away.team) syntheticTeams.set(away.team.id, away.team);
+
     const base = {
       id: String(fdMatch.id),
       matchweek: fdMatch.matchday,
       date: toSaoPauloIso(fdMatch.utcDate),
-      homeTeam: await teamIdFromFootballData(fdMatch.homeTeam.id, fdMatch.homeTeam.name),
-      awayTeam: await teamIdFromFootballData(fdMatch.awayTeam.id, fdMatch.awayTeam.name),
+      homeTeam: home.id,
+      awayTeam: away.id,
       venue: fdMatch.venue ?? null,
     };
 
@@ -170,8 +195,8 @@ export async function mapMatches(raw: unknown): Promise<Match[]> {
       continue;
     }
 
-    const { home, away } = fdMatch.score.fullTime;
-    if (home === null || away === null) {
+    const { home: homeGoals, away: awayGoals } = fdMatch.score.fullTime;
+    if (homeGoals === null || awayGoals === null) {
       // Never fabricate a score — a made-up 0x0 is exactly the kind of unbacked number
       // the golden rule exists to keep out, and the worst place for one to be born is
       // inside the facts source itself.
@@ -183,12 +208,32 @@ export async function mapMatches(raw: unknown): Promise<Match[]> {
 
     matches.push(
       status === "live"
-        ? { ...base, status, score: { home, away }, minute: null }
-        : { ...base, status, score: { home, away } },
+        ? { ...base, status, score: { home: homeGoals, away: awayGoals }, minute: null }
+        : { ...base, status, score: { home: homeGoals, away: awayGoals } },
     );
   }
 
-  return matches;
+  // A response with matches where every single one fails to map isn't the same thing as
+  // an empty matchweek: it's a sign the response itself is corrupted (confirmed live —
+  // football-data.org's free tier intermittently returns a timestamp in the `status`
+  // field instead of the enum; see this task's Implementação section). Swallowing that
+  // as matches: [] would make getFacts say "no games this round", which is false — the
+  // "the source didn't answer" case belongs in the exception path (spec §13), same as
+  // any other primary-source failure.
+  if (parsed.data.matches.length > 0 && matches.length === 0) {
+    throw new Error(
+      `football-data.org: all ${parsed.data.matches.length} matches in this response failed to map ` +
+        "(unknown status or missing score) — likely a corrupted upstream response, not an empty matchweek",
+    );
+  }
+
+  return { matches, syntheticTeams: [...syntheticTeams.values()] };
+}
+
+async function resolveTeam(footballDataId: number, fallbackName: string): Promise<{ id: string; team: Team | null }> {
+  const resolution = await teamIdFromFootballData(footballDataId, fallbackName);
+  if (!resolution.synthesized) return { id: resolution.id, team: null };
+  return { id: resolution.id, team: { id: resolution.id, name: fallbackName, nicknames: [] } };
 }
 
 function seasonYear(startDate: string): number {
