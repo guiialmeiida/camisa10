@@ -37,7 +37,12 @@ vi.mock("../../src/ingestion/classify.ts", () => ({
 const { indexPassages } = await import("../../src/ingestion/indexer.ts");
 const { countPoints, getClient, search } = await import("../../src/vectorstore/qdrant.ts");
 
-describe("ingestion pipeline converges instead of rebuilding", () => {
+// Real Voyage embedding calls (classify.ts is mocked, embedAll isn't) were never part of
+// the LLM_CASSETTE recording — same reasoning as live-sources.test.ts: there's nothing to
+// replay here, so this file only makes sense against the real network.
+const shouldSkip = process.env["LLM_CASSETTE"] === "replay";
+
+describe.skipIf(shouldSkip)("ingestion pipeline converges instead of rebuilding", () => {
   const originalCollection = process.env["QDRANT_COLLECTION"];
   const embedSpy = vi.spyOn(embedModule, "embedAll");
 
