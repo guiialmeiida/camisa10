@@ -57,10 +57,24 @@ describe("teamIdFromFootballData", () => {
   it("falls back to a synthetic slug and warns instead of throwing for an unknown id", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 
-    const id = await teamIdFromFootballData(999999, "Novo Time FC");
+    const resolution = await teamIdFromFootballData(999999, "Novo Time FC");
 
-    expect(id).toBe("novo time fc".replace(/\s+/g, "-"));
+    expect(resolution).toEqual({ id: "novo-time-fc", synthesized: true });
     expect(warn).toHaveBeenCalled();
+  });
+
+  it("strips characters outside [a-z0-9-] from the synthetic slug", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const resolution = await teamIdFromFootballData(999998, "S.E. Palmeiras Jr.");
+
+    expect(resolution.id).toMatch(/^[a-z0-9-]+$/);
+    warn.mockRestore();
+  });
+
+  it("does not mark a known team as synthesized", async () => {
+    const resolution = await teamIdFromFootballData(1769, "SE Palmeiras");
+    expect(resolution).toEqual({ id: "palmeiras", synthesized: false });
   });
 });
 
@@ -73,6 +87,19 @@ describe("tagTeams", () => {
   it("matches a known team's name inside a sentence", async () => {
     const teams = await tagTeams("O Palmeiras venceu com facilidade");
     expect(teams).toContain("palmeiras");
+  });
+
+  it("does not tag a club name that is also a common lowercase word (regression: F1/generic sports news)", async () => {
+    const f1News = await tagTeams("Após vitória em Monza, Antonelli prega cautela no GP da Espanha de F1");
+    expect(f1News).not.toContain("vitoria");
+
+    const saintsDay = await tagTeams("A seleção brasileira comemorou os santos do dia");
+    expect(saintsDay).not.toContain("santos");
+  });
+
+  it("still tags the club when the name is capitalized as a proper noun", async () => {
+    const teams = await tagTeams("O Vitória venceu o clássico baiano fora de casa");
+    expect(teams).toContain("vitoria");
   });
 });
 

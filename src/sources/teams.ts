@@ -26,6 +26,22 @@ function normalize(text: string): string {
     .replace(/\s+/g, " ");
 }
 
+/**
+ * Same diacritic-folding as `normalize`, but case-preserving \u2014 used only by `tagTeams`.
+ * A handful of club names (Vit\u00f3ria, Santos) are also common Portuguese words when
+ * lowercased ("vit\u00f3ria" = victory, "santos" = saints); folding case away made "vit\u00f3ria
+ * em Monza" (F1 news) and "os santos do dia" (a saint's-day mention) both tag as club
+ * mentions. Real headlines capitalize proper nouns; keeping case means "Vit\u00f3ria" (the
+ * club) still matches, and lowercase "vit\u00f3ria" (the word) doesn't.
+ */
+function normalizePreservingCase(text: string): string {
+  return text
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
 function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -82,30 +98,45 @@ export async function resolveTeamId(name: string): Promise<string | null> {
   return byNormalizedKey.get(normalize(name)) ?? null;
 }
 
+export interface FootballDataTeamResolution {
+  id: string;
+  /** True when `id` is a synthetic slug, not a curated teams.json entry. */
+  synthesized: boolean;
+}
+
 /** Maps football-data.org's numeric team id to our slug. */
-export async function teamIdFromFootballData(id: number, fallbackName: string): Promise<string> {
+export async function teamIdFromFootballData(
+  id: number,
+  fallbackName: string,
+): Promise<FootballDataTeamResolution> {
   const { byFootballDataId } = await loadIndex();
   const known = byFootballDataId.get(id);
-  if (known) return known;
+  if (known) return { id: known, synthesized: false };
 
   // A team the curated file doesn't know about (promoted club nobody added yet)
   // degrades to a synthetic slug instead of dropping the match: the game keeps
-  // showing up, just without a nickname.
-  const slug = normalize(fallbackName).replace(/\s+/g, "-");
+  // showing up, just without a nickname. Stripped to [a-z0-9-] so a name with a
+  // period or apostrophe ("S.E. Palmeiras") can't produce a slug teamRecordSchema's
+  // own id pattern would reject.
+  const slug = normalize(fallbackName)
+    .replace(/[^a-z0-9\s-]/g, "")
+    .trim()
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-");
   console.warn(`teams.ts: unknown footballDataId ${id} ("${fallbackName}") — using synthetic slug "${slug}"`);
-  return slug;
+  return { id: slug, synthesized: true };
 }
 
 /** Teams whose name or alias appears in the text. Used to tag RSS passages. */
 export async function tagTeams(text: string): Promise<string[]> {
   const { records } = await loadIndex();
-  const normalizedText = normalize(text);
+  const normalizedText = normalizePreservingCase(text);
   const matches = new Set<string>();
 
   for (const record of records) {
     const candidates = [record.name, ...record.aliases];
     const matched = candidates.some((candidate) => {
-      const pattern = new RegExp(`\\b${escapeRegExp(normalize(candidate))}\\b`);
+      const pattern = new RegExp(`\\b${escapeRegExp(normalizePreservingCase(candidate))}\\b`);
       return pattern.test(normalizedText);
     });
     if (matched) matches.add(record.id);
