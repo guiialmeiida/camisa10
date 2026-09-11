@@ -1,0 +1,9 @@
+{
+  "_fixtureNote": "Built from footballDataCompetitionSchema (docs/tasks/01-data-sources.md §6) and the field names confirmed during this task's discovery ('confirmado ao vivo'). Could not be re-recorded against the real API in the implementation step: FOOTBALL_DATA_TOKEN was not available in .env. This field itself is dropped by the schema, which only reads known fields.",
+  "name": "Campeonato Brasileiro Série A",
+  "code": "BSA",
+  "currentSeason": {
+    "startDate": "2026-04-11",
+    "currentMatchday": 12
+  }
+}

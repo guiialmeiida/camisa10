@@ -1,0 +1,98 @@
+{
+  "_fixtureNote": "Field shape recorded live against v3.football.api-sports.io/fixtures?live=all with a real API_FOOTBALL_KEY on 2026-09-10 (see docs/tasks/01-data-sources.md, 'Implementação'). No Brasileirão (league.id 71) match happened to be live at recording time, so the league-71 entry below was written by hand — same field names/types as the real response, values chosen to match this task's other fixtures (Palmeiras x Fluminense). The non-71 entry is the real recorded fixture, trimmed of unrelated fields. This field itself is not part of the real response and is dropped by the schema, which only reads known fields.",
+  "get": "fixtures",
+  "parameters": { "live": "all" },
+  "errors": [],
+  "results": 2,
+  "paging": { "current": 1, "total": 1 },
+  "response": [
+    {
+      "fixture": {
+        "id": 1198432,
+        "referee": null,
+        "timezone": "UTC",
+        "date": "2026-09-10T22:00:00+00:00",
+        "timestamp": 1789077600,
+        "periods": { "first": 1789077600, "second": null },
+        "venue": { "id": 215, "name": "Allianz Parque", "city": "São Paulo" },
+        "status": { "long": "Second Half", "short": "2H", "elapsed": 67, "extra": null }
+      },
+      "league": {
+        "id": 71,
+        "name": "Serie A",
+        "country": "Brazil",
+        "logo": "https://media.api-sports.io/football/leagues/71.png",
+        "flag": "https://media.api-sports.io/flags/br.svg",
+        "season": 2026,
+        "round": "Regular Season - 12",
+        "standings": true
+      },
+      "teams": {
+        "home": { "id": 121, "name": "Palmeiras", "logo": "https://media.api-sports.io/football/teams/121.png", "winner": null },
+        "away": { "id": 124, "name": "Fluminense", "logo": "https://media.api-sports.io/football/teams/124.png", "winner": null }
+      },
+      "goals": { "home": 1, "away": 0 },
+      "score": {
+        "halftime": { "home": 1, "away": 0 },
+        "fulltime": { "home": null, "away": null },
+        "extratime": { "home": null, "away": null },
+        "penalty": { "home": null, "away": null }
+      },
+      "events": [
+        {
+          "time": { "elapsed": 23, "extra": null },
+          "team": { "id": 121, "name": "Palmeiras", "logo": "https://media.api-sports.io/football/teams/121.png" },
+          "player": { "id": 12345, "name": "Exemplo Jogador" },
+          "assist": { "id": null, "name": null },
+          "type": "Goal",
+          "detail": "Normal Goal",
+          "comments": null
+        }
+      ]
+    },
+    {
+      "fixture": {
+        "id": 1500109,
+        "referee": null,
+        "timezone": "UTC",
+        "date": "2026-09-10T22:00:00+00:00",
+        "timestamp": 1789077600,
+        "periods": { "first": 1789077600, "second": null },
+        "venue": { "id": null, "name": null, "city": null },
+        "status": { "long": "First Half", "short": "1H", "elapsed": 21, "extra": null }
+      },
+      "league": {
+        "id": 132,
+        "name": "Primera C",
+        "country": "Argentina",
+        "logo": "https://media.api-sports.io/football/leagues/132.png",
+        "flag": "https://media.api-sports.io/flags/ar.svg",
+        "season": 2026,
+        "round": "Regular Season - 28",
+        "standings": true
+      },
+      "teams": {
+        "home": { "id": 18915, "name": "Mercedes", "logo": "https://media.api-sports.io/football/teams/18915.png", "winner": false },
+        "away": { "id": 8381, "name": "Deportivo Español", "logo": "https://media.api-sports.io/football/teams/8381.png", "winner": true }
+      },
+      "goals": { "home": 0, "away": 1 },
+      "score": {
+        "halftime": { "home": 0, "away": 1 },
+        "fulltime": { "home": null, "away": null },
+        "extratime": { "home": null, "away": null },
+        "penalty": { "home": null, "away": null }
+      },
+      "events": [
+        {
+          "time": { "elapsed": 7, "extra": null },
+          "team": { "id": 8381, "name": "Deportivo Español", "logo": "https://media.api-sports.io/football/teams/8381.png" },
+          "player": { "id": 672366, "name": "R. P. Cabrera" },
+          "assist": { "id": null, "name": null },
+          "type": "Goal",
+          "detail": "Normal Goal",
+          "comments": null
+        }
+      ]
+    }
+  ]
+}

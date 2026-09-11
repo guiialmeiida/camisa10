@@ -46,7 +46,12 @@ function formatMatchSummary(match: Match, teams: Team[]): string {
   if (match.status === "scheduled") {
     return `${homeName} x ${awayName}   scheduled   ${date}`;
   }
-  return `${homeName} ${match.score.home} x ${match.score.away} ${awayName}   ${match.status}   ${date}`;
+  if (match.status === "postponed") {
+    return `${homeName} x ${awayName}   postponed   ${date}`;
+  }
+
+  const minuteSuffix = match.status === "live" && match.minute !== null ? ` (${match.minute}')` : "";
+  return `${homeName} ${match.score.home} x ${match.score.away} ${awayName}   ${match.status}${minuteSuffix}   ${date}`;
 }
 
 function truncate(text: string, maxLength: number): string {

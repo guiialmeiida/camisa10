@@ -56,7 +56,12 @@ function formatMatchLine(match: Match, teams: Team[]): string {
     return `${homeName} x ${awayName} — agendado — ${formattedDate}`;
   }
 
-  return `${homeName} ${match.score.home} x ${match.score.away} ${awayName} — ${match.status} — ${formattedDate}`;
+  if (match.status === "postponed") {
+    return `${homeName} x ${awayName} — adiado — ${formattedDate}`;
+  }
+
+  const minuteSuffix = match.status === "live" && match.minute !== null ? ` (${match.minute}')` : "";
+  return `${homeName} ${match.score.home} x ${match.score.away} ${awayName} — ${match.status}${minuteSuffix} — ${formattedDate}`;
 }
 
 function buildContextSection(context: SearchResult[]): string {

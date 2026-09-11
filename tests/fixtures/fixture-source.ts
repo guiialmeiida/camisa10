@@ -2,14 +2,17 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 import { fixtureSchema } from "./fixture-schema.ts";
-import type { Fixture, Passage } from "./fixture-schema.ts";
-import type { Facts, FactsFilter } from "./types.ts";
+import type { Fixture, Passage, Team } from "./fixture-schema.ts";
+import type { Facts, FactsFilter } from "../../src/sources/types.ts";
 
-const FIXTURE_PATH = path.join(
-  import.meta.dirname,
-  "fixtures",
-  "brasileirao-2026-matchweek-12.json",
-);
+// Task 01 moved this whole test double out of src/sources/ — the golden-rule trap
+// (p07) only exists here now, not in production. See docs/tasks/01-data-sources.md §12.
+const FIXTURE_PATH = path.join(import.meta.dirname, "brasileirao-2026-matchweek-12.json");
+
+// Mirrors the fixture JSON's `competition.id`/`name` — kept as a sync constant so this
+// test double's COMPETITION export has the same shape (no Promise) as the real
+// src/sources/competition.ts, which extract-entity.ts imports directly.
+export const COMPETITION = { id: "brasileirao-serie-a", name: "Brasileirão Série A" };
 
 let cachedFixture: Fixture | undefined;
 
@@ -61,4 +64,11 @@ export async function getFacts(filter?: FactsFilter): Promise<Facts> {
 export async function listPassages(): Promise<Passage[]> {
   const fixture = await loadFixture();
   return fixture.passages;
+}
+
+/** Same surface as src/sources/teams.ts' listTeams() — the fixture's teams are already
+ * `{ id, name, nicknames }`, nothing else to strip. */
+export async function listTeams(): Promise<Team[]> {
+  const fixture = await loadFixture();
+  return fixture.teams;
 }

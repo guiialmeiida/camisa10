@@ -17,7 +17,7 @@ const mockSearchContext = vi.mocked(searchContext);
 const mockCountPoints = vi.mocked(countPoints);
 
 const fakeEnv = {
-  API_FUTEBOL_TOKEN: "fake-token",
+  FOOTBALL_DATA_TOKEN: "fake-token",
   VOYAGE_API_KEY: "voyage-fake",
   ANTHROPIC_API_KEY: "sk-ant-fake",
   QDRANT_URL: "http://localhost:6333",
