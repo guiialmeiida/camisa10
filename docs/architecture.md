@@ -100,6 +100,7 @@ Para os termos de domínio não se retraduzirem a cada arquivo, a tradução é 
 | plano | `plan` | | modo | `mode` |
 | data | `date` | | ponto (Qdrant) | `point` |
 | confiança | `confidence` | | limiar | `threshold` |
+| variante/apelido de nome | `alias` | | feed (RSS) | `feed` |
 
 Os nós do agente mantêm os nomes já usados neste documento: `planner`, `grader`, `writer`
 (redator), `critic` (crítico), `entityExtraction` (extração de entidade).

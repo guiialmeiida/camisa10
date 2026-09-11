@@ -1,5 +1,6 @@
 import "dotenv/config";
 import { getFacts, listPassages } from "../sources/index.ts";
+import { RSS_FEEDS } from "../sources/feeds.ts";
 import { formatMatchDateTime, teamName } from "../generation/match-format.ts";
 import type { Match, Team } from "../sources/index.ts";
 
@@ -32,13 +33,16 @@ async function main(): Promise<void> {
   console.log(`current matchweek: ${facts.matchweek}   (source: ${facts.source})`);
   console.log("");
   console.log("matches");
+  if (facts.matches.length === 0) {
+    console.log("  (no matches for this matchweek)");
+  }
   for (const match of facts.matches) {
     console.log(formatMatchLine(match, facts.teams));
   }
 
   const passages = await listPassages();
   console.log("");
-  console.log(`passages (${passages.length} items)`);
+  console.log(`passages (${RSS_FEEDS.length} feed${RSS_FEEDS.length === 1 ? "" : "s"}, ${passages.length} items)`);
   for (const passage of passages.slice(0, 20)) {
     const date = formatMatchDateTime(passage.publishedAt);
     const teams = passage.teams.length > 0 ? `[${passage.teams.join(", ")}]` : "[]";
