@@ -42,6 +42,8 @@ function buildState(overrides: Partial<StateWithData> = {}): StateWithData {
         payload: {
           passageId: "p07",
           contentHash: "0".repeat(40),
+          chunkIndex: 0,
+          chunkCount: 1,
           text: "Em uma tarde movimentada no Allianz Parque, o alviverde venceu por dois a zero em casa...",
           title: "Crônica: um duelo movimentado no Allianz Parque",
           source: "Fixture Esportivo",
@@ -101,6 +103,13 @@ describe("buildPrompt", () => {
     const prompt = buildPrompt(buildState({ facts: null }));
 
     expect(prompt.user).toContain("a chamada à API de fatos falhou");
+  });
+
+  it("never renders chunkIndex or chunkCount — they're chunk position, not fact or narrative (spec §13)", () => {
+    const prompt = buildPrompt(buildState());
+
+    expect(prompt.user).not.toContain("chunkIndex");
+    expect(prompt.user).not.toContain("chunkCount");
   });
 });
 

@@ -107,7 +107,8 @@ Para os termos de domínio não se retraduzirem a cada arquivo, a tradução é 
 | confiança | `confidence` | | limiar | `threshold` |
 | variante/apelido de nome | `alias` | | feed (RSS) | `feed` |
 | fingerprint de conteúdo | `contentHash` | | resumo do que já está indexado | `digest` |
-| convergir para a fonte | `incremental` | | | |
+| convergir para a fonte | `incremental` | | pedaço de um passage (chunking) | `chunk` |
+| sobreposição entre chunks | `overlap` | | chunk sem escrita mais recente | `orphan chunk` |
 
 Os nós do agente mantêm os nomes já usados neste documento: `planner`, `grader`, `writer`
 (redator), `critic` (crítico), `entityExtraction` (extração de entidade).

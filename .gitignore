@@ -18,5 +18,8 @@ coverage/
 # config local do Claude Code (pode conter caminhos e permissões da máquina)
 .claude/settings.local.json
 
+# config local de editor (ex. Obsidian, quando o repo é aberto como vault)
+.obsidian/
+
 # sistema
 .DS_Store

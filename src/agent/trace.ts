@@ -162,8 +162,13 @@ export function formatTrace(state: FinalState): string {
         } else {
           lines.push(`        k=${entry.k} over ${entry.collectionSize} points in collection ${entry.collection}`);
           entry.results.forEach((result, index) => {
+            // chunkCount === 1 means the passage wasn't split — the whole fixture today,
+            // and printing "chunk 1/1" there wouldn't teach anything. 1-based here because
+            // it's text for a human; the underlying field stays 0-based.
+            const chunkLabel =
+              result.payload.chunkCount > 1 ? `  chunk ${result.payload.chunkIndex + 1}/${result.payload.chunkCount}` : "";
             lines.push(
-              `        #${index + 1}  ${result.score.toFixed(3)}  ${result.payload.passageId}  ${result.payload.type}  "${truncate(result.payload.text, 45)}"`,
+              `        #${index + 1}  ${result.score.toFixed(3)}  ${result.payload.passageId}${chunkLabel}  ${result.payload.type}  "${truncate(result.payload.text, 45)}"`,
             );
           });
         }

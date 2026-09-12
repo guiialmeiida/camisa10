@@ -4,7 +4,9 @@ import { z } from "zod";
 export const passagePayloadSchema = z.strictObject({
   passageId: z.string().min(1),
   contentHash: z.string().length(40), // see src/ingestion/content-hash.ts
-  text: z.string().min(1),
+  chunkIndex: z.number().int().min(0), // position of this chunk within the passage, 0-based
+  chunkCount: z.number().int().positive(), // how many chunks the passage produced in total
+  text: z.string().min(1), // the text of THIS chunk, not the whole passage
   title: z.string().min(1),
   source: z.string().min(1),
   url: z.string(),

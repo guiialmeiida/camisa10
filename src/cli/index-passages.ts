@@ -1,4 +1,5 @@
 import "dotenv/config";
+import { CHUNK_OVERLAP, CHUNK_SIZE } from "../ingestion/chunk.ts";
 import { indexPassages } from "../ingestion/indexer.ts";
 import type { IndexReport } from "../ingestion/indexer.ts";
 import type { PassageType } from "../sources/types.ts";
@@ -33,7 +34,7 @@ function formatTypeCounts(typeCounts: Record<PassageType, number>): string {
 
 function printReport(report: IndexReport): void {
   console.log(`collection ${report.collection} (${report.mode})`);
-  console.log(`  ${report.passages} passages from the source`);
+  console.log(`  ${report.passages} passages from the source -> ${report.chunks} chunks (${CHUNK_SIZE} chars, ${CHUNK_OVERLAP} overlap)`);
 
   if (report.mode === "recreate") {
     console.log(`  ${report.newPassages} to index (full rebuild)`);
@@ -46,11 +47,17 @@ function printReport(report: IndexReport): void {
     return;
   }
 
+  const classifiedCount = report.newPassages + report.changed;
   const fallbackWord = report.classificationFallbacks === 1 ? "fallback" : "fallbacks";
   console.log(
-    `  ${report.points} classified: ${formatTypeCounts(report.typeCounts)}  (${report.classificationFallbacks} ${fallbackWord})`,
+    `  ${classifiedCount} classified: ${formatTypeCounts(report.typeCounts)}  (${report.classificationFallbacks} ${fallbackWord})`,
   );
-  console.log(`  ${report.points} points upserted`);
+
+  if (report.mode === "recreate") {
+    console.log(`  ${report.points} points upserted`);
+  } else {
+    console.log(`  ${report.points} points upserted, ${report.orphanPointsDeleted} orphan chunks deleted`);
+  }
 }
 
 async function main(): Promise<void> {

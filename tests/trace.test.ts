@@ -23,10 +23,16 @@ function buildFinalState(trace: TraceEntry[], overrides: Partial<FinalState> = {
   };
 }
 
-function samplePayload(passageId: string, type: PassagePayload["type"] = "article"): PassagePayload {
+function samplePayload(
+  passageId: string,
+  type: PassagePayload["type"] = "article",
+  chunk: { chunkIndex: number; chunkCount: number } = { chunkIndex: 0, chunkCount: 1 },
+): PassagePayload {
   return {
     passageId,
     contentHash: "0".repeat(40),
+    chunkIndex: chunk.chunkIndex,
+    chunkCount: chunk.chunkCount,
     text: `texto de ${passageId}`,
     title: `título de ${passageId}`,
     source: "Fixture Esportivo",
@@ -233,6 +239,40 @@ describe("formatTrace", () => {
 
     expect(output).toContain("retrieved but not cited");
     expect(output).toContain("p07");
+  });
+
+  it("does not print 'chunk' for a result whose chunkCount is 1 — the passage wasn't split", () => {
+    const trace: TraceEntry[] = [
+      {
+        node: "search_vector_context",
+        model: "voyage-3.5",
+        ms: 100,
+        k: 5,
+        collection: "camisa10",
+        collectionSize: 14,
+        results: [{ id: 1, score: 0.5, payload: samplePayload("p01") }],
+      },
+    ];
+
+    expect(formatTrace(buildFinalState(trace))).not.toContain("chunk");
+  });
+
+  it("prints 'chunk 2/4' for a result with chunkIndex: 1, chunkCount: 4", () => {
+    const trace: TraceEntry[] = [
+      {
+        node: "search_vector_context",
+        model: "voyage-3.5",
+        ms: 100,
+        k: 5,
+        collection: "camisa10",
+        collectionSize: 14,
+        results: [
+          { id: 1, score: 0.612, payload: samplePayload("p03", "matchReport", { chunkIndex: 1, chunkCount: 4 }) },
+        ],
+      },
+    ];
+
+    expect(formatTrace(buildFinalState(trace))).toContain("chunk 2/4");
   });
 
   it("prints the failure instead of the matches when fetch_facts_api has an error", () => {

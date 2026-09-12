@@ -2,20 +2,35 @@ import "dotenv/config";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { loadEnv } from "../../src/config/env.ts";
 import { EMBEDDING } from "../../src/config/models.ts";
-import { countPoints, ensureCollection, fetchDigests, getClient, insertPoints, search } from "../../src/vectorstore/qdrant.ts";
+import {
+  countPoints,
+  deleteOrphanChunks,
+  ensureCollection,
+  fetchDigests,
+  getClient,
+  insertPoints,
+  search,
+} from "../../src/vectorstore/qdrant.ts";
 import type { Point } from "../../src/vectorstore/types.ts";
 
 function vector(fill: (index: number) => number): number[] {
   return Array.from({ length: EMBEDDING.dimensions }, (_, index) => fill(index));
 }
 
-function samplePoint(id: number, passageId: string, contentHash = "0".repeat(40)): Point {
+function samplePoint(
+  id: number,
+  passageId: string,
+  contentHash = "0".repeat(40),
+  chunk: { chunkIndex: number; chunkCount: number } = { chunkIndex: 0, chunkCount: 1 },
+): Point {
   return {
     id,
     vector: vector((index) => (index === id ? 1 : 0)),
     payload: {
       passageId,
       contentHash,
+      chunkIndex: chunk.chunkIndex,
+      chunkCount: chunk.chunkCount,
       text: `texto ${passageId}`,
       title: `título ${passageId}`,
       source: "Fixture Esportivo",
@@ -82,6 +97,29 @@ describe("vectorstore round-trip", () => {
     expect(byPointId.get(11)).toMatchObject({ passageId: "p11", contentHash: "1".repeat(40) });
     expect(byPointId.get(12)).toMatchObject({ passageId: "p12", contentHash: "2".repeat(40) });
     expect(byPointId.has(999)).toBe(false);
+  });
+
+  it("deleteOrphanChunks removes only the chunks at or past the given chunkCount, against a real server", async () => {
+    // A nested should/must filter with a range condition is exactly the kind of thing
+    // that passes against a mock and fails against the real thing — this proves it works
+    // server-side, not just that qdrant.ts builds the right-shaped JSON.
+    const passageId = "p-orphan";
+    const points = [
+      samplePoint(21, passageId, "0".repeat(40), { chunkIndex: 0, chunkCount: 3 }),
+      samplePoint(22, passageId, "0".repeat(40), { chunkIndex: 1, chunkCount: 3 }),
+      samplePoint(23, passageId, "0".repeat(40), { chunkIndex: 2, chunkCount: 3 }),
+    ];
+    await insertPoints(points);
+    const before = await countPoints();
+
+    const deleted = await deleteOrphanChunks([{ passageId, chunkCount: 1 }]);
+
+    expect(deleted).toBe(2);
+    expect(await countPoints()).toBe(before - 2);
+
+    const digests = await fetchDigests([21, 22, 23]);
+    const remainingIds = digests.map((digest) => digest.pointId);
+    expect(remainingIds).toEqual([21]);
   });
 
   it("throws on search when a stored payload doesn't match the schema", async () => {

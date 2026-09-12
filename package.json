@@ -15,7 +15,8 @@
     "typecheck": "tsc --noEmit",
     "ask": "node src/cli/ask.ts",
     "index": "node src/cli/index-passages.ts",
-    "sources": "node src/cli/sources.ts"
+    "sources": "node src/cli/sources.ts",
+    "eval:chunking": "node tests/eval/chunking-report.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.124.0",
