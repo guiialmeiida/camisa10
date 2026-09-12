@@ -64,5 +64,7 @@ Só a sua mensagem final chega a quem te chamou. Ela precisa conter:
 2. **O que você deixou em aberto**, e por que depende do usuário.
 3. **Onde você discordou** do que leu, se discordou.
 
-**O usuário aprova a spec antes de qualquer implementação começar.** A sua saída existe para
-ele conseguir dizer "não é isso" enquanto isso ainda custa uma conversa.
+**Se você não deixou nenhuma decisão em aberto, a implementação começa automaticamente em
+seguida — sem esperar aprovação explícita da spec.** O único ponto em que quem te chamou deve
+parar e voltar ao usuário é quando a seção 2 (o que você deixou em aberto) não está vazia: aí sim
+é a vez do usuário decidir antes de qualquer código ser escrito.

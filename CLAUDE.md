@@ -30,15 +30,29 @@ Arquitetura, tabela de modelos por etapa e o registro das decisões: `docs/archi
 
 ### O ciclo de cada tarefa
 
+O usuário só é acionado em dois pontos: quando o `refinador` deixa uma decisão em aberto, e para
+revisar o PR já pronto no final. Entre esses dois pontos o ciclo roda sem parar para aprovação.
+
 1. **Discovery** — conversa direta com o usuário, via skill `grill-me` (`.claude/skills/`).
    **Nunca delegue isso a um subagente**: as decisões são do usuário, e um subagente só adivinha
    defaults.
 2. **Refinamento** — subagente `refinador` (Opus) escreve a spec técnica no arquivo da tarefa.
-3. **Aprovação** — **o usuário aprova a spec antes de qualquer implementação.** É o ponto de
-   parada do loop de entrega; sem ele, os agentes constroem em cima de um mal-entendido.
-4. **Implementação** — subagente `implementador` (Sonnet), contra a spec, sem reinterpretá-la.
-5. **Revisão** — subagente `revisor` (Opus, adversarial), contra a spec e contra as regras de
-   arquitetura.
+   **Se ele reportar decisão em aberto que depende do usuário, pare aqui e pergunte** — é o único
+   ponto de parada antes do PR. Se a spec sair fechada, sem pendência, siga direto para a
+   implementação, sem pedir aprovação explícita da spec.
+3. **Implementação** — subagente `implementador` (Sonnet) é acionado automaticamente assim que a
+   spec estiver fechada, contra a spec, sem reinterpretá-la. Depois que ele termina, você commita
+   as mudanças localmente, em commit(s) coeso(s) — **sem** abrir PR ainda.
+4. **Revisão local** — subagente `revisor` (Opus, adversarial) roda automaticamente sobre a
+   working tree/branch local — **antes de existir PR**, sem `gh pr diff`/`gh pr review`. Relata
+   achados a você, não comenta em nada público.
+5. **Correção** — se houver achado, o `implementador` é reacionado com o relatório do `revisor`
+   e corrige; você commita a correção como novo commit coeso na mesma branch. Depois o `revisor`
+   roda de novo para confirmar. Repita até não haver mais achado, com um teto de **3 rodadas** —
+   no teto, pare e leve o que ficou pendente para o usuário em vez de insistir sozinho.
+6. **Abertura do PR** — só depois que a revisão local não tem mais achado (ou o teto da etapa 5
+   foi atingido): `git push` e `gh pr create`. É o segundo e último ponto onde o usuário entra —
+   para ler e aprovar o PR.
 
 As tarefas 04 e 05 são independentes e é onde vale rodar agentes em paralelo.
 
@@ -61,14 +75,15 @@ Cada tarefa de `docs/tasks/` vive numa branch própria e vira um PR. Nada vai di
 - **Branch**: `feat/NN-short-name` em inglês, derivada da tarefa — `feat/00-vertical-slice`,
   `feat/01-data-sources`. Correção fora de tarefa usa `fix/short-name`.
 - **Vários commits por tarefa**, cada um coeso. Não amontoe a tarefa inteira num commit só.
-- **O PR abre quando a implementação está pronta** — não no fim da revisão. Título no mesmo
-  formato Conventional Commits do commit; descrição em inglês, ligando à tarefa
-  (`docs/tasks/NN-....md`) e dizendo o que mudou e como verificar.
-- **O `revisor` roda depois do PR aberto e comenta dentro dele.** A revisão acontece à vista, no
-  diff, e não numa mensagem que se perde na conversa. Ele comenta; **não aprova nem pede
-  mudanças** — o veredito é do usuário.
-- **Correções vêm como novos commits na mesma branch**, nunca como `--amend` em commit já
-  publicado: force-push num PR aberto apaga o contexto dos comentários existentes.
+- **O `revisor` roda em local, antes do PR existir**, sobre a branch/working tree — não usa
+  `gh pr diff`/`gh pr review`. Achado dele vira correção do `implementador` como novo commit
+  coeso na mesma branch; o teto dessa volta é 3 rodadas (ver "O ciclo de cada tarefa").
+- **O PR só abre depois que a revisão local não tem mais achado** (ou o teto de rodadas foi
+  atingido). Título no mesmo formato Conventional Commits do commit; descrição em inglês, ligando
+  à tarefa (`docs/tasks/NN-....md`) e dizendo o que mudou e como verificar.
+- **A partir daqui o veredito é do usuário.** Se o usuário pedir mudança na revisão do PR, ela
+  também vem como novo commit — nunca `--amend` em commit já publicado: force-push num PR aberto
+  apaga o contexto dos comentários existentes.
 - **Merge só com o `npm test` verde e com o usuário aprovando.**
 
 ### Git: Conventional Commits, em inglês
