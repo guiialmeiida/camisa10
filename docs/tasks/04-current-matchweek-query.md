@@ -158,6 +158,16 @@ export function buildCurrentMatchweekFilter(params: CurrentMatchweekFilterParams
    O `Math.min` é obrigatório e não é detalhe de estilo: `facts.matches` **não vem ordenado**
    (discovery, item 1), e `matches[0].date` produziria uma janela errada sempre que a API devolver
    a rodada fora de ordem — um bug que só aparece em produção, com dados reais.
+
+   **Comportamento intencional, achado pela revisão e registrado aqui**: `facts` chega a esta
+   função já filtrado por time quando `entity.team` está presente (`getFacts({ team })`, em
+   `src/sources/facts.ts`, filtra `matches` antes de devolver). Ou seja, quando a pergunta nomeia
+   um time, `facts.matches` não é "todos os jogos da rodada" — é só o(s) jogo(s) daquele time, e o
+   `Math.min` ancora a janela no jogo do time, não no primeiro jogo de toda a rodada. Isso não é
+   corrigido de propósito: para uma pergunta sobre um time específico, ancorar no jogo *daquele
+   time* é mais preciso do que ancorar num confronto diferente que só está na mesma rodada por
+   coincidência de calendário. Sem `entity.team`, `facts.matches` traz a rodada inteira e o
+   `Math.min` ancora no primeiro jogo dela, como descrito acima.
 2. **Sem janela de datas**, em qualquer um destes casos (nenhum deles é erro):
    - `facts === null` (a chamada à API falhou);
    - `facts.matches.length === 0` (discovery, item 1);
@@ -426,8 +436,15 @@ vem um número. Concretamente:
    ele é congelado no momento da indexação e mentiria sobre a rodada real do conteúdo.
 4. **Nenhum número novo no prompt.** Nem o JSON do filtro, nem `waitedForFactsMs`: os dois só
    existem no trace, que não vai para LLM nenhum.
-5. `tests/integration/golden-rule.test.ts` continua valendo sem alteração — é o invariante de
-   ponta a ponta desta regra, e esta tarefa não muda nada que ele exercite.
+5. `tests/integration/golden-rule.test.ts` continua provando o invariante — o filtro novo não
+   torna a crônica-armadilha (`p07`) inelegível (confirmado por scroll direto no Qdrant com o
+   filtro real: `p07` ainda entra no conjunto candidato). **Correção sobre uma afirmação errada
+   que estava aqui antes**: esta tarefa muda, sim, o que esse teste exercita — a pergunta do
+   golden-rule é planejada como `current_matchweek` com `team: "palmeiras"`, então tanto o filtro
+   rígido quanto a instrução condicional do redator (seção 7) entram no caminho dela. Isso
+   invalida o cassette de `LLM_CASSETTE=replay` gravado antes desta tarefa (o corpo da requisição
+   do redator mudou). Ver "## Implementação" para o estado real do cassette e por que não foi
+   possível regravá-lo dentro do escopo desta correção.
 
 ### 9. Tratamento de erro
 
@@ -689,3 +706,42 @@ _A preencher._
 Correção sugerida (fora do escopo desta tarefa, deixada para quem tocar `golden-rule.test.ts`
 depois): regravar o cassette (`LLM_CASSETTE=record`) e considerar adicionar um método de pagamento
 à chave Voyage do ambiente de teste, se o rate limit continuar incomodando `npm run test:integration`.
+
+### Rodada de correção (revisão local, 2026-09-12)
+
+O `revisor` apontou 2 achados reais e 1 suspeita. Nenhum violava a regra de ouro nem era bug de
+código — tratados assim:
+
+1. **A spec (seção 8, item 5) afirmava algo falso** ("`golden-rule.test.ts` continua valendo sem
+   alteração ... esta tarefa não muda nada que ele exercite") — corrigido no texto da seção 8.
+   **Tentativa de regravar o cassette**: 4 tentativas reais (`LLM_CASSETTE=record`, chave Anthropic
+   e Voyage reais), incluindo uma com um ajuste temporário e não commitado no pacing entre rodadas
+   (pra afastar um 429 que derrubava a rodada 1/2 antes mesmo de chegar na asserção de placar).
+   Em toda tentativa que chegou a gerar texto, o redator escreveu o placar como "3 a 1" (visitante
+   primeiro) em vez de "1 a 3" — o placar está correto, só a ordem da frase é a que o teste não
+   aceita (`/\b1\s*(x|a|-)\s*3\b/`). Não é ruído de amostragem isolado: se repetiu de forma
+   consistente nas 4 tentativas, sugerindo uma preferência estilística estável do modelo ao narrar
+   uma vitória fora de casa ("[visitante] venceu [mandante] por V a M"), não uma variação aleatória
+   que mais uma tentativa resolveria. **Decisão**: não insistir mais — regravar esse cassette,
+   inclusive decidir se o regex do teste deveria aceitar as duas ordens de placar, fica para quem
+   tocar `golden-rule.test.ts` depois (a spec já marca esse arquivo como fora do escopo de mudança
+   de código nesta tarefa; a suspeita de que o próprio teste é estreito demais nesse ponto é nova
+   e não estava prevista, então também não é desta tarefa resolver). O cassette commitado
+   permanece o de antes da tarefa 04 (não sobrescrito por uma gravação ruim); `LLM_CASSETTE=replay`
+   continua falhando nesse arquivo especificamente, por esse motivo documentado — não por regressão
+   silenciosa.
+
+2. **A janela de data ancora no jogo do time, não no primeiro jogo da rodada, quando a pergunta
+   nomeia um time** — `src/sources/facts.ts` filtra `facts.matches` pelo time antes de
+   `buildCurrentMatchweekFilter` calcular o `Math.min`. Aceito como comportamento intencional (não
+   corrigido no código): documentado na seção 3, junto da regra 1, que quando `entity.team` está
+   presente a janela ancora no(s) jogo(s) daquele time — mais preciso para uma pergunta sobre um
+   time específico do que ancorar no primeiro jogo de toda a rodada, que pode ser de outro confronto.
+
+3. **Suspeita corrigida**: a instrução condicional do redator (`src/generation/writer.ts`) falava em
+   `scheduled`/`postponed`, mas `formatMatchLine` renderiza esses status em português
+   (`agendado`/`adiado`). Ajustado para citar os dois rótulos lado a lado.
+
+`npm test`: **189/189 passando** depois das correções (typecheck + vitest). Nenhum código de
+produção mudou por causa do achado 1 (é puramente um problema de estado do cassette/spec); achado 2
+é só documentação; achado 3 é a única mudança de código desta rodada.
