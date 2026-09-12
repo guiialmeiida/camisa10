@@ -116,7 +116,8 @@ describe("buildPrompt", () => {
     const prompt = buildPrompt(buildState({ plan: { ...buildState().plan, mode: "current_matchweek" } }));
 
     expect(prompt.system).toContain("finished ou live");
-    expect(prompt.system).toContain("scheduled ou postponed");
+    expect(prompt.system).toContain("scheduled/\"agendado\"");
+    expect(prompt.system).toContain("postponed/\"adiado\"");
     expect(prompt.system).toMatch(/não crie seções/i);
   });
 

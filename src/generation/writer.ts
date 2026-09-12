@@ -22,7 +22,7 @@ export function buildPrompt(state: StateWithData): Prompt {
     "Se não houver context relevante, diga isso explicitamente e responda só com os facts.",
     ...(state.plan.mode === "current_matchweek"
       ? [
-          "A pergunta é sobre a rodada em andamento: em texto corrido, fale primeiro do que já aconteceu (jogos com status finished ou live) e só depois do que ainda vai acontecer (scheduled ou postponed). Não crie seções, títulos nem listas do tipo \"Resultados\" e \"Próximos jogos\" — é um texto só.",
+          "A pergunta é sobre a rodada em andamento: em texto corrido, fale primeiro do que já aconteceu (jogos com status finished ou live) e só depois do que ainda vai acontecer (scheduled/\"agendado\" ou postponed/\"adiado\"). Não crie seções, títulos nem listas do tipo \"Resultados\" e \"Próximos jogos\" — é um texto só.",
         ]
       : []),
     "Responda em português, de forma direta.",
