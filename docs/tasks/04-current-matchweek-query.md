@@ -7,7 +7,7 @@ realmente paralelizam.
 ## Status
 - [x] Discovery  ← grilling de 2026-09-12, 8 decisões registradas abaixo
 - [x] Refinamento técnico  ← spec fechada em 2026-09-12, sem pendência para o usuário
-- [ ] Implementação
+- [x] Implementação  ← 2026-09-12, `npm test` 189/189; ver detalhes em Implementação/Testes abaixo
 - [ ] Revisão
 - [ ] Testes
 
@@ -600,10 +600,92 @@ imprime `filter: none`, sem espera — o modo que esta tarefa não toca.
   para que essa decisão, se voltar, volte com um número na mão.
 
 ## Implementação
-_A preencher._
+
+Implementado em 2026-09-12, contra a spec fechada acima, sem reinterpretação.
+
+**Criados**
+- `src/retrieval/filters.ts` — `buildCurrentMatchweekFilter` + `CURRENT_MATCHWEEK_LOOKBACK_DAYS`.
+  Função pura: janela de `publishedAt` a partir do `Math.min` das datas de `facts.matches` (nunca
+  `matches[0]`), cláusula de `teams` condicional a `entity.team`, `null` quando não há cláusula
+  nenhuma. Todos os casos degenerados da seção 9 (facts nulo, sem jogos, datas inválidas, janela
+  vazia) devolvem "sem cláusula de data" em vez de lançar.
+- `tests/retrieval/filters.test.ts` — os 12 casos da seção 11, incluindo o teste da ordem não
+  cronológica (o jogo mais antigo na última posição do array) e a igualdade literal com o exemplo
+  da seção 3.
+- `docs/learning/05-rigid-filters.md` — o conceito da tarefa: pré-filtrar vs. pós-processar, por
+  que `publishedAt` e não `payload.matchweek`, por que `Math.min` e não `matches[0]`, e o custo em
+  paralelismo de um filtro que depende de um fato. Termina em "Por que não X?".
+
+**Alterados**
+- `src/vectorstore/qdrant.ts` — `ensureCollection` passa a garantir, sempre e no fim, um índice de
+  payload `datetime` em `publishedAt` (idempotente; erro de rede sobe embrulhado, como o resto do
+  arquivo).
+- `src/agent/graph.ts` — `runContextCall` substitui a chamada direta a `searchContext` no fan-out:
+  em `current_matchweek` espera `factsCall` defensivamente (`.catch(() => null)`, preservando a
+  resiliência do `Promise.allSettled`) e monta o filtro; em `team_form` chama `searchContext`
+  imediatamente, byte a byte como antes. `runFanOut` propaga `filter`/`waitedForFactsMs` ao trace.
+- `src/agent/trace.ts` — `TraceEntry` (`search_vector_context`) ganhou `filter` e
+  `waitedForFactsMs`, ambos obrigatórios. `formatTrace` imprime o sufixo `(waited Xs for
+  fetch_facts_api)` quando `waitedForFactsMs > 0` e a linha `filter: ...`/`filter: none` antes dos
+  ramos de erro/vazio/resultados.
+- `src/generation/writer.ts` — instrução condicional no `system` quando `plan.mode ===
+  "current_matchweek"` (falar do que já aconteceu antes do que falta, em texto corrido, sem
+  seções fixas). `buildFactsSection`/`formatMatchLine` intocados.
+- `src/retrieval/search-context.ts` — só o comentário do topo.
+- `tests/graph.test.ts` — novo describe (`spec §5`) com os 6 casos da seção 11: filtro aplicado em
+  `current_matchweek`, ausência de `filter` em `team_form`, não-espera em `team_form`, espera em
+  `current_matchweek`, resiliência com `getFacts` rejeitando (com e sem `entity.team`).
+- `tests/trace.test.ts` — os 5 objetos de amostra ganharam os campos novos; 3 casos novos
+  (`filter: none` sem sufixo, filtro + wait, filtro presente com `results: []`).
+- `tests/writer.test.ts` — 3 casos novos: instrução presente em `current_matchweek`, ausente em
+  `team_form`, `buildFactsSection` mantendo a ordem de `facts.matches` sem reordenar.
+- `tests/integration/vectorstore.test.ts` — um caso novo contra Qdrant real: 4 points com
+  `publishedAt` controlados (antes da janela, dois dentro, um no futuro) e `teams` variados;
+  confirma que o `range` de datetime e o `match` de `teams` filtram corretamente no servidor.
+- `docs/architecture.md` — 3 linhas de glossário (`filter`, `publishedAt window`, `lookback`) e a
+  nota de que a tarefa 04 implementou só o filtro rígido; `peso_metadado`/`decaimento_temporal`
+  seguem pendentes (tarefa 05).
+- `docs/learning/README.md` — linha nova apontando para `05-rigid-filters.md`.
+- `README.md` — nota de migração pós-merge (`npm run index` uma vez, sem `--recreate`, cria o
+  índice de payload).
+
+**Sem desvio da spec.** Um ponto exigiu decisão de implementação não detalhada na spec: o tipo
+`QdrantFilter["must"]`, gerado pelo cliente do Qdrant, é `Condition | Condition[] |
+Record<string, unknown>` — largo demais para montar incrementalmente com `.push`. Resolvido com um
+tipo `FilterClause` local (a forma concreta das duas cláusulas que este módulo produz), estruturalmente
+compatível com `FieldCondition` do Qdrant — não é uma reinterpretação da spec, só o encaixe de tipo
+que a seção 3 não precisava especificar.
+
+**Commits** (branch `feat/04-current-matchweek-query`, a partir de `main`):
+1. `docs(task-04): close discovery and technical spec`
+2. `feat(retrieval): add the current_matchweek rigid filter`
+3. `feat(vectorstore): ensure a datetime payload index on publishedAt`
+4. `feat(agent): wire the current_matchweek filter into the fan-out and trace`
+5. `feat(generation): order the current_matchweek narrative by what already happened`
+6. `test(vectorstore): prove the publishedAt datetime range works server-side`
 
 ## Revisão
 _A preencher._
 
 ## Testes
-_A preencher._
+
+- `npm test` (typecheck + vitest, sem rede/Docker): **189/189 passando**, 20 arquivos.
+- `npx vitest run --config vitest.integration.config.ts tests/integration/vectorstore.test.ts`
+  contra Qdrant real: **6/6 passando**, incluindo o novo caso do filtro de datetime/teams.
+- `npm run test:integration` completo, sem `LLM_CASSETTE` (chamadas reais): a suíte inteira tem
+  flakiness pré-existente e não relacionada a esta tarefa — a chave Voyage do ambiente está sem
+  método de pagamento (rate limit de 3 RPM), e `golden-rule.test.ts`/`recall.test.ts`/
+  `ingestion-incremental.test.ts` competem pela mesma cota ao rodar em sequência; numa das rodadas,
+  `golden-rule.test.ts` também bateu numa variação de fraseio do LLM (o redator escreveu "3 a 1",
+  placar do visitante primeiro, em vez do padrão "1 a 3" que o regex do teste exige) — o texto
+  citava o placar oficial corretamente, só numa ordem diferente da que o teste antecipa; o próprio
+  arquivo já documenta que precisou de várias tentativas para gravar uma geração que passasse. Em
+  `LLM_CASSETTE=replay`, `golden-rule.test.ts` falha porque o prompt do redator mudou (a instrução
+  condicional desta tarefa) e o cassette commitado é anterior a essa mudança — esperado, e fora do
+  escopo desta tarefa recravar o cassette (`golden-rule.test.ts` está explicitamente marcado como
+  "não muda" na spec, seção 1). Isolado das outras suítes, o teste novo de `vectorstore.test.ts`
+  passa de forma consistente contra Qdrant real (rodado 2x, 6/6 nas duas vezes).
+
+Correção sugerida (fora do escopo desta tarefa, deixada para quem tocar `golden-rule.test.ts`
+depois): regravar o cassette (`LLM_CASSETTE=record`) e considerar adicionar um método de pagamento
+à chave Voyage do ambiente de teste, se o rate limit continuar incomodando `npm run test:integration`.
