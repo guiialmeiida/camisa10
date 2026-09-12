@@ -99,6 +99,8 @@ describe("formatTrace", () => {
         k: 5,
         collection: "camisa10",
         collectionSize: 14,
+        filter: null,
+        waitedForFactsMs: 0,
         results: [
           { id: 3, score: 0.612, payload: samplePayload("p03") },
           { id: 14, score: 0.571, payload: samplePayload("p14") },
@@ -139,6 +141,8 @@ describe("formatTrace", () => {
         k: 5,
         collection: "camisa10-dev",
         collectionSize: 14,
+        filter: null,
+        waitedForFactsMs: 0,
         results: [{ id: 1, score: 0.5, payload: samplePayload("p01") }],
       },
     ];
@@ -194,6 +198,8 @@ describe("formatTrace", () => {
         k: 5,
         collection: "camisa10",
         collectionSize: 14,
+        filter: null,
+        waitedForFactsMs: 0,
         results: [],
       },
     ];
@@ -250,6 +256,8 @@ describe("formatTrace", () => {
         k: 5,
         collection: "camisa10",
         collectionSize: 14,
+        filter: null,
+        waitedForFactsMs: 0,
         results: [{ id: 1, score: 0.5, payload: samplePayload("p01") }],
       },
     ];
@@ -266,6 +274,8 @@ describe("formatTrace", () => {
         k: 5,
         collection: "camisa10",
         collectionSize: 14,
+        filter: null,
+        waitedForFactsMs: 0,
         results: [
           { id: 1, score: 0.612, payload: samplePayload("p03", "matchReport", { chunkIndex: 1, chunkCount: 4 }) },
         ],
@@ -284,5 +294,75 @@ describe("formatTrace", () => {
 
     expect(output).toContain("ERROR");
     expect(output).toContain("network timeout");
+  });
+
+  it("prints 'filter: none' and no wait suffix when the search ran unfiltered", () => {
+    const trace: TraceEntry[] = [
+      {
+        node: "search_vector_context",
+        model: "voyage-3.5",
+        ms: 330,
+        k: 5,
+        collection: "camisa10",
+        collectionSize: 14,
+        filter: null,
+        waitedForFactsMs: 0,
+        results: [],
+      },
+    ];
+
+    const output = formatTrace(buildFinalState(trace));
+
+    expect(output).toContain("filter: none");
+    expect(output).not.toContain("waited");
+  });
+
+  it("prints the filter JSON and the wait suffix when the search waited on fetch_facts_api", () => {
+    const trace: TraceEntry[] = [
+      {
+        node: "search_vector_context",
+        model: "voyage-3.5",
+        ms: 940,
+        k: 5,
+        collection: "camisa10",
+        collectionSize: 97,
+        filter: {
+          must: [
+            { key: "publishedAt", range: { gte: "2026-09-03T00:30:00.000Z", lte: "2026-09-07T15:00:00.000Z" } },
+            { key: "teams", match: { value: "palmeiras" } },
+          ],
+        },
+        waitedForFactsMs: 610,
+        results: [{ id: 1, score: 0.612, payload: samplePayload("p03") }],
+      },
+    ];
+
+    const output = formatTrace(buildFinalState(trace));
+
+    expect(output).toContain(
+      '{"must":[{"key":"publishedAt","range":{"gte":"2026-09-03T00:30:00.000Z","lte":"2026-09-07T15:00:00.000Z"}},{"key":"teams","match":{"value":"palmeiras"}}]}',
+    );
+    expect(output).toContain("(waited 0.61s for fetch_facts_api)");
+  });
+
+  it("still prints the filter line when results is empty — the case where it matters most", () => {
+    const trace: TraceEntry[] = [
+      {
+        node: "search_vector_context",
+        model: "voyage-3.5",
+        ms: 330,
+        k: 5,
+        collection: "camisa10",
+        collectionSize: 14,
+        filter: { must: [{ key: "teams", match: { value: "palmeiras" } }] },
+        waitedForFactsMs: 0,
+        results: [],
+      },
+    ];
+
+    const output = formatTrace(buildFinalState(trace));
+
+    expect(output).toContain('filter: {"must":[{"key":"teams","match":{"value":"palmeiras"}}]}');
+    expect(output).toContain("no passages retrieved");
   });
 });
