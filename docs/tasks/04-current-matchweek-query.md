@@ -682,7 +682,31 @@ que a seção 3 não precisava especificar.
 6. `test(vectorstore): prove the publishedAt datetime range works server-side`
 
 ## Revisão
-_A preencher._
+
+Duas rodadas locais, antes do PR.
+
+**Rodada 1**: 2 achados reais (spec §8 item 5 afirmava algo falso sobre `golden-rule.test.ts`; a
+janela de data ancora no jogo do time, não no primeiro jogo da rodada, quando a pergunta nomeia um
+time) + 1 suspeita (rótulo de status em inglês na instrução do redator, texto renderizado em
+português) + 1 nota de higiene (arquivo de outra tarefa solto na working tree). Todos tratados —
+detalhe em "## Implementação", subseção "Rodada de correção".
+
+**Rodada 2**: confirmou as 3 correções e a higiene, e achou 1 residual (baixo, só documentação):
+a seção "## Testes" ainda citava uma referência cruzada ("seção 1") que não existia mais depois da
+correção da rodada 1 — corrigida.
+
+**Observação não bloqueante, registrada e não corrigida**: quando `searchContext` rejeita no modo
+`current_matchweek` (ex.: Qdrant fora do ar com os fatos OK), o trace imprime `filter: none` junto
+do erro, mesmo a busca tendo sido tentada *com* filtro — `filter`/`waitedForFactsMs` só são lidos
+no ramo `fulfilled` de `contextSettled` (`src/agent/graph.ts`, `runFanOut`), e a rejeição descarta
+o `ContextOutcome` inteiro antes de os expor. Efeito é cosmético (nenhum dado da resposta muda,
+só a linha do trace fica levemente imprecisa nesse cenário de erro específico), e corrigi-lo exige
+mudar a forma como `runContextCall` trata erro do `searchContext` (deixar de rejeitar e passar a
+devolver um `error` dentro do `ContextOutcome`, como a ponta de fatos já faz) — não é o "achado
+barato" que a revisão pediu para só mexer se fosse grátis. Visto e não corrigido; candidato a
+item de uma tarefa futura ou de uma pequena correção isolada, não desta.
+
+Sem achado novo na segunda rodada além do residual — pronto para PR.
 
 ## Testes
 
@@ -699,8 +723,10 @@ _A preencher._
   arquivo já documenta que precisou de várias tentativas para gravar uma geração que passasse. Em
   `LLM_CASSETTE=replay`, `golden-rule.test.ts` falha porque o prompt do redator mudou (a instrução
   condicional desta tarefa) e o cassette commitado é anterior a essa mudança — esperado, e fora do
-  escopo desta tarefa recravar o cassette (`golden-rule.test.ts` está explicitamente marcado como
-  "não muda" na spec, seção 1). Isolado das outras suítes, o teste novo de `vectorstore.test.ts`
+  escopo desta tarefa recravar o cassette (a seção 10, lista de arquivos a alterar, não lista
+  `golden-rule.test.ts` — ver também a correção da seção 8, item 5, que reconhece que esta tarefa
+  muda o que esse teste exercita, mesmo sem alterar o arquivo em si). Isolado das outras suítes,
+  o teste novo de `vectorstore.test.ts`
   passa de forma consistente contra Qdrant real (rodado 2x, 6/6 nas duas vezes).
 
 Correção sugerida (fora do escopo desta tarefa, deixada para quem tocar `golden-rule.test.ts`
