@@ -67,10 +67,18 @@ function getCollectionName(): string {
  * Creates the collection if it doesn't exist. `recreate: true` drops and recreates it
  * (used by `npm run index`). Dimension EMBEDDING.dimensions (1024), "Cosine" distance.
  * See docs/learning/01: the dimension is permanent.
+ *
+ * Always ensures, at the end, a `datetime` payload index on `publishedAt` — whether the
+ * collection was just created or already existed. Creating an index that already exists
+ * with the same schema is a no-op, so this heals a pre-task-04 collection without needing
+ * `--recreate`. Without this index the current_matchweek date filter (task 04) could
+ * silently return zero results — the worst failure mode for it, since the answer still
+ * comes out, just with no context and no one knowing why.
  */
 export async function ensureCollection(options?: EnsureCollectionOptions): Promise<void> {
   const qdrant = getClient();
   const collection = getCollectionName();
+  const url = loadEnv().QDRANT_URL;
   const exists = await qdrant.collectionExists(collection);
 
   if (exists.exists && options?.recreate) {
@@ -81,6 +89,12 @@ export async function ensureCollection(options?: EnsureCollectionOptions): Promi
     await qdrant.createCollection(collection, {
       vectors: { size: EMBEDDING.dimensions, distance: "Cosine" },
     });
+  }
+
+  try {
+    await qdrant.createPayloadIndex(collection, { field_name: "publishedAt", field_schema: "datetime", wait: true });
+  } catch (error) {
+    throw new Error(`could not reach Qdrant at ${url}: ${describeError(error)}`, { cause: error });
   }
 }
 

@@ -1,5 +1,6 @@
 import { formatMatchDateTime, teamName } from "../generation/match-format.ts";
 import type { Facts, Match, Team } from "../sources/index.ts";
+import type { QdrantFilter } from "../vectorstore/qdrant.ts";
 import type { SearchResult } from "../vectorstore/types.ts";
 import type { Entity, FinalState, Plan } from "./state.ts";
 
@@ -10,10 +11,15 @@ export type TraceEntry =
   | {
       node: "search_vector_context";
       model: string;
+      /** The whole branch: waiting for the facts (when the mode needs them) + embedding + query. */
       ms: number;
       k: number;
       collection: string;
       collectionSize: number;
+      /** The rigid filter sent to Qdrant, or null when the search ran unfiltered. */
+      filter: QdrantFilter | null;
+      /** How long the branch waited for fetch_facts_api. Always 0 outside current_matchweek. */
+      waitedForFactsMs: number;
       results: SearchResult[];
       error?: string;
     }
@@ -154,7 +160,10 @@ export function formatTrace(state: FinalState): string {
         if (fanOutHeaderIndex >= 0) {
           lines[fanOutHeaderIndex] = `${lines[fanOutHeaderIndex]}    ${formatSeconds(fanOutMs)}`;
         }
-        lines.push(`    └── search_vector_context    ${entry.model}    ${formatSeconds(entry.ms)}`);
+        const waitedSuffix =
+          entry.waitedForFactsMs > 0 ? `    (waited ${formatSeconds(entry.waitedForFactsMs)} for fetch_facts_api)` : "";
+        lines.push(`    └── search_vector_context    ${entry.model}    ${formatSeconds(entry.ms)}${waitedSuffix}`);
+        lines.push(`        filter: ${entry.filter !== null ? JSON.stringify(entry.filter) : "none"}`);
         if (entry.error !== undefined) {
           lines.push(`        ERROR: ${entry.error}`);
         } else if (entry.results.length === 0) {

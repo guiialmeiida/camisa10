@@ -20,6 +20,11 @@ export function buildPrompt(state: StateWithData): Prompt {
     "Nunca escreva, na resposta, nenhum número (placar, gols, data) que venha do context — nem mesmo para apontar que ele diverge dos facts. Se um trecho do context contradisser os facts, mencione que existe essa divergência sem repetir o número errado (ex.: \"uma das fontes traz um placar diferente do oficial\"), e cite a fonte só se necessário.",
     "Toda afirmação que vier do context deve citar a fonte no formato [passageId].",
     "Se não houver context relevante, diga isso explicitamente e responda só com os facts.",
+    ...(state.plan.mode === "current_matchweek"
+      ? [
+          "A pergunta é sobre a rodada em andamento: em texto corrido, fale primeiro do que já aconteceu (jogos com status finished ou live) e só depois do que ainda vai acontecer (scheduled/\"agendado\" ou postponed/\"adiado\"). Não crie seções, títulos nem listas do tipo \"Resultados\" e \"Próximos jogos\" — é um texto só.",
+        ]
+      : []),
     "Responda em português, de forma direta.",
   ].join("\n");
 

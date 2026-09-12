@@ -1,10 +1,12 @@
 import { loadEnv } from "../config/env.ts";
 import { EMBEDDING, MODELS } from "../config/models.ts";
 import { write } from "../generation/writer.ts";
+import { buildCurrentMatchweekFilter } from "../retrieval/filters.ts";
 import { searchContext } from "../retrieval/search-context.ts";
 import { getFacts } from "../sources/index.ts";
 import type { Facts } from "../sources/index.ts";
 import { countPoints } from "../vectorstore/qdrant.ts";
+import type { QdrantFilter } from "../vectorstore/qdrant.ts";
 import type { SearchResult } from "../vectorstore/types.ts";
 import { extractEntity } from "./nodes/extract-entity.ts";
 import { plan as planNode } from "./nodes/plan.ts";
@@ -74,6 +76,46 @@ function forceNonEmptyTools(state: StateWithPlan): StateWithPlan {
   return { ...state, plan: { ...state.plan, tools: ["fetch_facts_api"] } };
 }
 
+interface ContextOutcome {
+  results: SearchResult[];
+  /** The rigid filter actually sent to Qdrant — null when the search ran unfiltered. */
+  filter: QdrantFilter | null;
+  /** How long this branch sat waiting for the facts call. 0 when it didn't wait. */
+  waitedForFactsMs: number;
+}
+
+/**
+ * The search branch of the fan-out. In current_matchweek mode the date window comes from
+ * the facts, so this branch waits for the facts call — defensively: a rejected facts call
+ * becomes "no date window", never a rejected search. team_form doesn't wait at all.
+ */
+async function runContextCall(
+  state: StateWithPlan,
+  factsCall: Promise<{ value: Facts; ms: number }>,
+): Promise<ContextOutcome> {
+  let filter: QdrantFilter | null = null;
+  let waitedForFactsMs = 0;
+
+  if (state.plan.mode === "current_matchweek") {
+    const waitStart = performance.now();
+    // The .catch here — not the allSettled below — is what preserves resilience: without
+    // it, a football API that's down would reject both branches of the allSettled, and
+    // the question would lose the narrative too. With it, the search still runs, just
+    // without a date window (the team clause, if any, still applies).
+    const facts = await factsCall.then((settled) => settled.value).catch(() => null);
+    waitedForFactsMs = performance.now() - waitStart;
+    filter = buildCurrentMatchweekFilter({ facts, team: state.entity.team });
+  }
+
+  const results = await searchContext({
+    query: state.plan.searchQuery,
+    k: state.k,
+    ...(filter !== null ? { filter } : {}),
+  });
+
+  return { results, filter, waitedForFactsMs };
+}
+
 /** Exported separately so the Promise.allSettled resilience (spec §6) is testable without spending on the API. */
 export async function runFanOut(state: StateWithPlan, trace: TraceEntry[]): Promise<StateWithData> {
   const factsCall = measure(() =>
@@ -83,7 +125,7 @@ export async function runFanOut(state: StateWithPlan, trace: TraceEntry[]): Prom
       matchweek: state.entity.matchweek ?? undefined,
     }),
   );
-  const contextCall = measure(() => searchContext({ query: state.plan.searchQuery, k: state.k }));
+  const contextCall = measure(() => runContextCall(state, factsCall));
 
   const [factsSettled, contextSettled] = await Promise.allSettled([factsCall, contextCall]);
 
@@ -99,10 +141,14 @@ export async function runFanOut(state: StateWithPlan, trace: TraceEntry[]): Prom
   }
 
   let context: SearchResult[];
+  let filter: QdrantFilter | null = null;
+  let waitedForFactsMs = 0;
   let contextMs = 0;
   let contextError: string | undefined;
   if (contextSettled.status === "fulfilled") {
-    context = contextSettled.value.value;
+    context = contextSettled.value.value.results;
+    filter = contextSettled.value.value.filter;
+    waitedForFactsMs = contextSettled.value.value.waitedForFactsMs;
     contextMs = contextSettled.value.ms;
   } else {
     context = [];
@@ -126,6 +172,8 @@ export async function runFanOut(state: StateWithPlan, trace: TraceEntry[]): Prom
     k: state.k,
     collection: loadEnv().QDRANT_COLLECTION,
     collectionSize,
+    filter,
+    waitedForFactsMs,
     results: context,
     ...(contextError !== undefined ? { error: contextError } : {}),
   });
