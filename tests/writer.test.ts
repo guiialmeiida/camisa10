@@ -111,6 +111,59 @@ describe("buildPrompt", () => {
     expect(prompt.user).not.toContain("chunkIndex");
     expect(prompt.user).not.toContain("chunkCount");
   });
+
+  it("current_matchweek: instructs the writer to tell what already happened before what's next, with no fixed sections", () => {
+    const prompt = buildPrompt(buildState({ plan: { ...buildState().plan, mode: "current_matchweek" } }));
+
+    expect(prompt.system).toContain("finished ou live");
+    expect(prompt.system).toContain("scheduled ou postponed");
+    expect(prompt.system).toMatch(/não crie seções/i);
+  });
+
+  it("team_form: the prompt stays exactly as before — no current_matchweek instruction", () => {
+    const prompt = buildPrompt(buildState({ plan: { ...buildState().plan, mode: "team_form" } }));
+
+    expect(prompt.system).not.toContain("finished ou live");
+    expect(prompt.system).not.toMatch(/não crie seções/i);
+  });
+
+  it("buildFactsSection keeps the matches in the order facts.matches returns them — no reordering", () => {
+    const state = buildState({
+      facts: {
+        ...buildState().facts!,
+        matches: [
+          {
+            id: "m2",
+            matchweek: 12,
+            date: "2026-09-08T20:00:00-03:00",
+            status: "scheduled",
+            homeTeam: "corinthians",
+            awayTeam: "santos",
+            score: null,
+            venue: "Neo Química Arena",
+          },
+          {
+            id: "m1",
+            matchweek: 12,
+            date: "2026-09-05T21:30:00-03:00",
+            status: "finished",
+            homeTeam: "palmeiras",
+            awayTeam: "fluminense",
+            score: { home: 1, away: 3 },
+            venue: "Allianz Parque",
+          },
+        ],
+      },
+    });
+
+    const factsSection = extractSection(buildPrompt(state).user, "facts");
+    const scheduledIndex = factsSection.indexOf("agendado");
+    const finishedIndex = factsSection.indexOf("finished");
+
+    expect(scheduledIndex).toBeGreaterThanOrEqual(0);
+    expect(finishedIndex).toBeGreaterThanOrEqual(0);
+    expect(scheduledIndex).toBeLessThan(finishedIndex);
+  });
 });
 
 describe("extractCitations", () => {
