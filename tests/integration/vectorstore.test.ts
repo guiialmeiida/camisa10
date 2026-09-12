@@ -22,6 +22,7 @@ function samplePoint(
   passageId: string,
   contentHash = "0".repeat(40),
   chunk: { chunkIndex: number; chunkCount: number } = { chunkIndex: 0, chunkCount: 1 },
+  overrides: { teams?: string[]; publishedAt?: string } = {},
 ): Point {
   return {
     id,
@@ -36,11 +37,11 @@ function samplePoint(
       source: "Fixture Esportivo",
       url: `https://exemplo.invalido/fixture/${passageId}`,
       type: "article",
-      teams: ["palmeiras"],
+      teams: overrides.teams ?? ["palmeiras"],
       matchId: "m1",
       competition: "brasileirao-serie-a",
       matchweek: 12,
-      publishedAt: "2026-09-06T08:00:00-03:00",
+      publishedAt: overrides.publishedAt ?? "2026-09-06T08:00:00-03:00",
     },
   };
 }
@@ -134,5 +135,46 @@ describe("vectorstore round-trip", () => {
     });
 
     await expect(search({ vector: invalidVector, k: 1 })).rejects.toThrow();
+  });
+
+  it("current_matchweek filter (task 04): the publishedAt datetime range and the teams match both work server-side", async () => {
+    // Proves the range works as a real datetime comparison on the server, over a
+    // publishedAt stored with a -03:00 offset — not just that qdrant.ts builds the
+    // right-shaped JSON. A filter that passes against a mock and comes back empty in
+    // production is exactly the failure mode this task exists to avoid (spec §11).
+    // Deliberately a different month than every other point in this file (which default
+    // to 2026-09-06), so the date window below can't accidentally catch them too.
+    const before = samplePoint(31, "p-window-before", "0".repeat(40), undefined, {
+      publishedAt: "2026-09-20T00:00:00-03:00",
+      teams: ["palmeiras"],
+    });
+    const insidePalmeiras = samplePoint(32, "p-window-inside-palmeiras", "0".repeat(40), undefined, {
+      publishedAt: "2026-10-05T00:00:00-03:00",
+      teams: ["palmeiras"],
+    });
+    const insideSantos = samplePoint(33, "p-window-inside-santos", "0".repeat(40), undefined, {
+      publishedAt: "2026-10-06T00:00:00-03:00",
+      teams: ["santos"],
+    });
+    const future = samplePoint(34, "p-window-future", "0".repeat(40), undefined, {
+      publishedAt: "2026-10-15T00:00:00-03:00",
+      teams: ["santos"],
+    });
+    await insertPoints([before, insidePalmeiras, insideSantos, future]);
+
+    const dateFilter = {
+      must: [{ key: "publishedAt", range: { gte: "2026-10-01T00:00:00-03:00", lte: "2026-10-10T00:00:00-03:00" } }],
+    };
+
+    const withinWindow = await search({ vector: insidePalmeiras.vector, k: 10, filter: dateFilter });
+    const withinWindowIds = withinWindow.map((result) => result.payload.passageId).sort();
+    expect(withinWindowIds).toEqual(["p-window-inside-palmeiras", "p-window-inside-santos"]);
+
+    const withTeamClause = await search({
+      vector: insidePalmeiras.vector,
+      k: 10,
+      filter: { must: [...dateFilter.must, { key: "teams", match: { value: "palmeiras" } }] },
+    });
+    expect(withTeamClause.map((result) => result.payload.passageId)).toEqual(["p-window-inside-palmeiras"]);
   });
 });

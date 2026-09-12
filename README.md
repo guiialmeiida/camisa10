@@ -49,6 +49,13 @@ lançar ao encontrá-lo. Rode `npm run index -- --recreate` **uma vez** depois d
 reconstruir a coleção do zero com o novo schema; depois disso, `npm run index` incremental é o
 comando do dia a dia.
 
+**Migração pós-merge da tarefa 04**: `ensureCollection()` passa a garantir um índice de payload
+`datetime` em `publishedAt`, usado pelo filtro rígido do modo `current_matchweek`
+(`docs/tasks/04-current-matchweek-query.md`, `docs/learning/05-rigid-filters.md`). A criação do
+índice é idempotente e roda dentro do `ensureCollection` de sempre — basta rodar `npm run index`
+(sem `--recreate`) **uma vez** depois de atualizar, para a coleção já existente ganhar o índice
+novo.
+
 Ferramenta de inspeção manual do chunking (não entra no `npm test`, não tem "passou/falhou"):
 
 ```bash
