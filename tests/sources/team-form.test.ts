@@ -194,21 +194,43 @@ describe("mapTeamForm — against the real body recorded live (task 05, §2)", (
     warn.mockRestore();
   });
 
-  it("a match with no declared competition is dropped from both sides of the partition, even when it's the most recent", async () => {
+  it("a match with an unusable competition — absent, null, or present without code/name — is dropped from both sides of the partition, even the most recent one, without failing the whole body's validation", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const raw = {
       matches: [
+        // `competition` field entirely absent.
         {
           id: 1,
           utcDate: "2026-09-06T00:30:00Z",
           status: "FINISHED",
-          competition: null,
           homeTeam: { id: 1769, name: "SE Palmeiras" },
           awayTeam: { id: 1765, name: "Fluminense FC" },
           score: { fullTime: { home: 2, away: 0 } },
         },
+        // `competition: null`.
         {
           id: 2,
+          utcDate: "2026-09-05T00:30:00Z",
+          status: "FINISHED",
+          competition: null,
+          homeTeam: { id: 1769, name: "SE Palmeiras" },
+          awayTeam: { id: 1765, name: "Fluminense FC" },
+          score: { fullTime: { home: 1, away: 1 } },
+        },
+        // `competition` present but missing both `code` and `name` — the schema must
+        // still validate this (achado 1: a stricter schema would fail the entire body's
+        // safeParse over this one game instead of letting mapTeamForm drop just it).
+        {
+          id: 3,
+          utcDate: "2026-09-04T00:30:00Z",
+          status: "FINISHED",
+          competition: { id: 2013 },
+          homeTeam: { id: 1769, name: "SE Palmeiras" },
+          awayTeam: { id: 1765, name: "Fluminense FC" },
+          score: { fullTime: { home: 3, away: 0 } },
+        },
+        {
+          id: 4,
           utcDate: "2026-09-01T00:30:00Z",
           status: "FINISHED",
           competition: { code: "CLI", name: "Copa Libertadores" },
@@ -222,9 +244,10 @@ describe("mapTeamForm — against the real body recorded live (task 05, §2)", (
     const form = await mapTeamForm("palmeiras", 1769, raw);
 
     expect(form.matches).toEqual([]);
-    // The undeclared-competition match (id 1) is more recent than the CLI one, yet the
-    // CLI match — not the undeclared one — becomes otherCompetitionMatch.
-    expect(form.otherCompetitionMatch?.id).toBe("2");
+    // Every unusable-competition match (ids 1-3) is more recent than the CLI one, yet the
+    // CLI match — not one of them — becomes otherCompetitionMatch.
+    expect(form.otherCompetitionMatch?.id).toBe("4");
+    expect(warn).toHaveBeenCalledTimes(3);
     warn.mockRestore();
   });
 

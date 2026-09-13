@@ -66,7 +66,12 @@ const fdTeamMatchSchema = z.object({
   status: z.string(),
   // nullish even though the live call returned it on every match: a boundary schema
   // describes what the client tolerates receiving, not what it expects (task 05, §4).
-  competition: z.object({ code: z.string(), name: z.string() }).nullish(),
+  // `code`/`name` are themselves optional (not just the object) so a match whose
+  // `competition` is present but missing one of them still validates — mapTeamForm's
+  // guard is what decides whether that match is usable, not this schema. A schema that
+  // required both would fail the *entire* body's safeParse over a single unrecognizable
+  // game, turning "drop one game" into "lose the whole retrospecto" (task 05, §5/§12).
+  competition: z.object({ code: z.string().optional(), name: z.string().optional() }).nullish(),
   homeTeam: fdTeamSchema,
   awayTeam: fdTeamSchema,
   score: fdScoreSchema,

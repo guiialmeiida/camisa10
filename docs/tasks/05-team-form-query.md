@@ -381,6 +381,17 @@ regra do placar ausente em `mapMatches`: **na dúvida, some com o jogo e deixe o
 rastro, nunca chute o dado que falta.** Na prática o custo é zero: a chamada real trouxe
 `competition` em 100% dos jogos (§2, ponto 4), então esse caminho é uma rede, não um fluxo.
 
+**Nota da rodada de correção (revisor, achado 1):** o bloco de código desta seção 4 tinha
+`competition: z.object({ code: z.string(), name: z.string() }).nullish()` — que valida `competition`
+ausente ou `null`, mas **não** um `competition` presente sem `code`/`name`. Nesse terceiro caso o
+`safeParse` do corpo inteiro falhava, e `getTeamForm` perdia o retrospecto inteiro em vez de
+descartar só aquele jogo, contradizendo a regra acima e a tabela da seção 12. O schema real em
+`src/sources/football-data.ts` foi ajustado para
+`competition: z.object({ code: z.string().optional(), name: z.string().optional() }).nullish()`, e o
+guard em `mapTeamForm` passou a cobrir os três casos (ausente, `null`, ou presente sem `code`/`name`
+utilizável) com o mesmo `console.warn` e descarte de um jogo só. A regra em prosa (a intenção) estava
+certa desde o início; era a forma literal do bloco de código que a contradizia.
+
 #### Exemplo literal
 
 Entrada (recorte do corpo cru, com os jogos **fora de ordem** de propósito e com uma competição

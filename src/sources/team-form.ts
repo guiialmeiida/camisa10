@@ -87,11 +87,13 @@ export async function mapTeamForm(teamId: string, footballDataId: number, raw: u
       continue;
     }
 
-    if (match.competition == null) {
+    const { competition } = match;
+    if (competition == null || !competition.code || !competition.name) {
       // Never guess a competition either: an undeclared competition can't honestly be
       // called BSA (would contaminate `record`) nor "other" (would label it in the
-      // prompt as something nobody confirmed). See this task's spec §5.
-      console.warn(`team-form.ts: match ${match.id} has no declared competition — dropped`);
+      // prompt as something nobody confirmed). Covers all three unusable shapes — absent,
+      // `null`, or present without a usable `code`/`name` — same rule for each (spec §5/§12).
+      console.warn(`team-form.ts: match ${match.id} has no usable declared competition — dropped`);
       continue;
     }
 
@@ -123,7 +125,7 @@ export async function mapTeamForm(teamId: string, footballDataId: number, raw: u
       side,
       score: { home: homeGoals, away: awayGoals },
       result,
-      competition: { code: match.competition.code, name: match.competition.name },
+      competition: { code: competition.code, name: competition.name },
     });
   }
 
