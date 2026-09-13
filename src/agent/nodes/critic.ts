@@ -206,7 +206,10 @@ export async function critique(state: FinalState): Promise<{ state: FinalState; 
     };
   }
 
+  const retrievedIds = new Set(state.context.map((result) => result.payload.passageId));
+
   let rewrittenText: string;
+  let callError: string | undefined;
   try {
     rewrittenText = await callText({
       config: MODELS.critic,
@@ -214,28 +217,21 @@ export async function critique(state: FinalState): Promise<{ state: FinalState; 
       user: buildCriticUser(state, allowed, orphans),
     });
   } catch (error) {
-    // The critic never gets to be the reason an answer doesn't ship — the original
-    // answer, orphan number and all, is better than no answer.
-    return {
-      state,
-      report: {
-        orphanNumbers: orphans,
-        rewritten: false,
-        remainingOrphanNumbers: [],
-        redactedSentences: [],
-        previousAnswer: null,
-        error: error instanceof Error ? error.message : String(error),
-      },
-    };
+    // The critic call failing is treated exactly like the one allowed rewrite having run
+    // and still left an orphan number: it falls through to the same deterministic
+    // redaction below (MAX_ANSWER_REWRITES is spent either way), instead of shipping the
+    // original answer with its orphan number untouched. `error` on the report is what
+    // distinguishes this from the "rewrite ran but didn't fix it" case in the trace.
+    rewrittenText = state.answer.text;
+    callError = error instanceof Error ? error.message : String(error);
   }
 
-  const retrievedIds = new Set(state.context.map((result) => result.payload.passageId));
   // Recalculated, not inherited: the rewrite may have dropped the sentence that carried
   // a citation, and a source list that no longer appears in the text is a trace that lies.
   const citedPassages = extractCitations(rewrittenText, retrievedIds);
   const remaining = findOrphanNumbers(rewrittenText, allowed);
 
-  if (remaining.length === 0) {
+  if (remaining.length === 0 && callError === undefined) {
     return {
       state: {
         ...state,
@@ -251,6 +247,9 @@ export async function critique(state: FinalState): Promise<{ state: FinalState; 
     };
   }
 
+  // Either the rewrite ran and still left an orphan number, or the call itself failed
+  // (callError set, rewrittenText === the original answer) — both converge here: the one
+  // allowed rewrite is spent, so what's left is redacted deterministically.
   const redaction = redactOrphanSentences(rewrittenText, remaining);
   const finalCitedPassages = extractCitations(redaction.text, retrievedIds);
 
@@ -261,10 +260,11 @@ export async function critique(state: FinalState): Promise<{ state: FinalState; 
     },
     report: {
       orphanNumbers: orphans,
-      rewritten: true,
+      rewritten: callError === undefined,
       remainingOrphanNumbers: remaining,
       redactedSentences: redaction.removedSentences,
       previousAnswer: state.answer.text,
+      ...(callError !== undefined ? { error: callError } : {}),
     },
   };
 }

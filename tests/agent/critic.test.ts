@@ -330,7 +330,7 @@ describe("critique", () => {
     expect(result.state.answer.text).not.toMatch(/\b4\b/);
   });
 
-  it("callText rejecting: the original answer is preserved, report.error is set, rewritten is false", async () => {
+  it("callText rejecting: treated as the rewrite having spent its one shot without fixing the answer — the orphan number is redacted, not shipped, and lowConfidence is raised", async () => {
     mockCallText.mockRejectedValue(new Error("anthropic 500"));
     const state = buildFinalState({
       answer: { text: "resposta com 4 vitórias seguidas", citedPassages: [], lowConfidence: false },
@@ -338,9 +338,14 @@ describe("critique", () => {
 
     const result = await critique(state);
 
-    expect(result.state.answer.text).toBe(state.answer.text);
+    // The orphan number never reaches the user, call failure or not — the golden rule
+    // holds even when the critic itself is unreachable.
+    expect(result.state.answer.text).not.toMatch(/\b4\b/);
+    expect(result.state.answer.lowConfidence).toBe(true);
     expect(result.report.error).toContain("anthropic 500");
     expect(result.report.rewritten).toBe(false);
+    expect(result.report.remainingOrphanNumbers).toEqual([4]);
+    expect(result.report.redactedSentences.length).toBeGreaterThan(0);
   });
 
   it("the critic prompt never contains the vector-index context (spec §12, golden rule)", async () => {
