@@ -106,6 +106,12 @@ export interface RedactionResult {
   removedSentences: string[];
 }
 
+// A "." only ends a sentence when it isn't a thousands separator — a "." with a digit on
+// both sides ("1.500") is folded into the sentence body instead, so segmentation can't cut
+// a number in half. Not a full sentence tokenizer, just enough to not mutilate a number.
+const SENTENCE_UNIT = "(?:(?<=\\d)\\.(?=\\d)|[^.!?…])";
+const SENTENCE_SLICE_PATTERN = new RegExp(`${SENTENCE_UNIT}+[.!?…]+\\s*|${SENTENCE_UNIT}+$`, "g");
+
 /** Deterministic, no LLM: drops every sentence that carries an orphan number. */
 export function redactOrphanSentences(text: string, orphans: number[]): RedactionResult {
   if (orphans.length === 0) {
@@ -116,7 +122,7 @@ export function redactOrphanSentences(text: string, orphans: number[]): Redactio
   // Each slice carries its own trailing punctuation and whitespace, so joining every
   // slice back together reproduces the input exactly — no lost line break, no doubled
   // space, when a slice is dropped.
-  const slices = text.match(/[^.!?…]+[.!?…]+\s*|[^.!?…]+$/g) ?? [];
+  const slices = text.match(SENTENCE_SLICE_PATTERN) ?? [];
 
   const kept: string[] = [];
   const removed: string[] = [];

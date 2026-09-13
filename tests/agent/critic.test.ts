@@ -250,6 +250,25 @@ describe("redactOrphanSentences", () => {
     // input untouched rather than warning about a removal that never happened.
     expect(redactOrphanSentences(text, [99])).toEqual({ text, removedSentences: [] });
   });
+
+  it("does not split inside a thousands-separated number: '1.500' survives as one token, not two sentences", () => {
+    const text = "O time marcou 1.500 gols na temporada.";
+
+    // 1500 isn't an orphan here — the point is only that segmentation doesn't cut the
+    // number in half and produce a truncated, false sentence like "O time marcou 1.".
+    const result = redactOrphanSentences(text, [42]);
+
+    expect(result).toEqual({ text, removedSentences: [] });
+  });
+
+  it("a real removal alongside a thousands-separated number in a kept sentence: the number survives intact", () => {
+    const text = "O time marcou 1.500 gols na temporada. Foram 4 vitórias seguidas.";
+
+    const result = redactOrphanSentences(text, [4]);
+
+    expect(result.removedSentences).toEqual(["Foram 4 vitórias seguidas."]);
+    expect(result.text).toBe(`O time marcou 1.500 gols na temporada. ${REDACTION_NOTICE}`);
+  });
 });
 
 describe("critique", () => {
