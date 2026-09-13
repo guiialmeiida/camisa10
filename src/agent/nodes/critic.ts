@@ -165,7 +165,9 @@ export interface CriticReport {
   redactedSentences: string[];
   /** The answer before the rewrite. null when there was no rewrite. */
   previousAnswer: string | null;
-  /** The critic call itself failed — the original answer is kept as it was. */
+  /** The critic call itself failed — the one allowed rewrite is spent either way, so the
+   *  deterministic redaction still runs on the original answer (same as a rewrite that ran
+   *  and still left an orphan number); `redactedSentences` may be non-empty here too. */
   error?: string;
 }
 

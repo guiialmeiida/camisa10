@@ -552,7 +552,9 @@ export interface CriticReport {
   redactedSentences: string[];
   /** The answer before the rewrite. null when there was no rewrite. */
   previousAnswer: string | null;
-  /** The critic call itself failed — the original answer is kept as it was. */
+  /** The critic call itself failed — the one allowed rewrite is spent either way, so the
+   *  deterministic redaction still runs on the original answer (same as a rewrite that ran
+   *  and still left an orphan number); `redactedSentences` may be non-empty here too. */
   error?: string;
 }
 
@@ -569,10 +571,13 @@ Ordem exata:
 2. `orphans.length === 0` → devolve o estado **intacto**, com
    `{ orphanNumbers: [], rewritten: false, remainingOrphanNumbers: [], redactedSentences: [], previousAnswer: null }`.
    **Zero chamada de LLM.**
-3. Senão, uma chamada `callText({ config: MODELS.critic, ... })`. Se ela rejeitar, devolve o estado
-   intacto com `error` preenchido e `rewritten: false` — o crítico nunca pode ser o motivo de a
-   resposta não sair (a resposta original, com o número suspeito, é melhor que nenhuma resposta, e o
-   traço diz que a verificação não terminou).
+3. Senão, uma chamada `callText({ config: MODELS.critic, ... })`. Se ela rejeitar, **não** devolve
+   o estado intacto: a refação por LLM está gasta (o teto de `MAX_ANSWER_REWRITES` já foi
+   consumido, com ou sem sucesso), então cai direto na mesma remoção determinística da seção 9 —
+   como se a refação tivesse rodado e ainda deixado o número órfão. O relatório sai com `error`
+   preenchido, `rewritten: false`, e `redactedSentences` pode não estar vazio (correção registrada
+   na "Rodada de correção" ao fim deste arquivo — a versão original desta spec previa a resposta
+   original intacta nesse caminho, o que deixava um número sem lastro vazar).
 4. Com o texto novo: `citedPassages = extractCitations(novoTexto, retrievedIds)` — recalculado, não
    herdado: a refação pode ter tirado a frase que carregava uma citação, e uma lista de fontes que
    não aparecem mais no texto é um traço que mente.
@@ -891,7 +896,7 @@ literalmente o que `docs/architecture.md` promete quando diz "é verificado em r
 | `runGradingLoop` | teto de 2 reescritas | laço termina com o melhor contexto; **responde, nunca falha** |
 | `runGradingLoop` | nenhuma tentativa aprovou nada | `context: []` → `computeLowConfidence` já devolve `true` → resposta com aviso |
 | `critique` | `facts === null` (API caiu) e a resposta tem dígito | todo número é órfão — **está certo**: sem fatos, nenhum número é verificável. O crítico gasta 1 chamada e, no teto, remove. A resposta já era de baixa confiança |
-| `critique` | a chamada do crítico rejeita | resposta **original** preservada, `error` no relatório, `rewritten: false`. O crítico nunca impede a resposta de sair |
+| `critique` | a chamada do crítico rejeita | cai na mesma remoção determinística da seção 9 (como se a refação tivesse rodado e ainda deixado o número órfão) — a resposta é redigida, não preservada intacta; `error` no relatório, `rewritten: false`, `lowConfidence: true`. O crítico nunca impede a resposta de sair (correção registrada na "Rodada de correção" ao fim deste arquivo) |
 | `critique` | a refação ainda tem órfão | remoção determinística (seção 9) + `lowConfidence: true` |
 | `redactOrphanSentences` | nenhuma frase sobrevive | `REDACTED_ANSWER_NOTICE` + `lowConfidence: true` |
 | `redactOrphanSentences` | `orphans` vazio | devolve o texto **idêntico**, `removedSentences: []` (função pura, sem surpresa) |
@@ -1338,6 +1343,56 @@ seria frágil sem trazer cobertura adicional).
 
 **Resultado dos testes desta rodada**: `npm test` — **305/305**, verde (303 antes da correção,
 +3 testes novos, -1 teste que não testava nada e foi reescrito no lugar = líquido +2).
+
+### Rodada de correção 2 (revisão local, 2026-09-13)
+
+A segunda revisão achou 3 problemas remanescentes na correção acima:
+
+1. **(Achado mais sério) O traço afirmava "answer unchanged" quando a resposta tinha sido de
+   fato redigida** — `src/agent/trace.ts`, `formatTrace`: no ramo do `critic`, quando
+   `entry.error !== undefined` (a chamada rejeitou), o código imprimia sempre
+   `"answer unchanged (critic call failed)"` e retornava antes de checar
+   `entry.redactedSentences` — mesmo nos casos em que a correção da rodada 1 fez a remoção
+   determinística rodar de qualquer forma sobre a resposta. Resultado: a mesma saída dizia
+   "answer unchanged" numa linha e, mais abaixo, no aviso de baixa confiança, "1 claim removed
+   from the answer" — contradição que escondia justamente a frase removida (que a spec promete
+   imprimir, seção 11). **Corrigido**: o status da linha e o corpo agora são decididos por dois
+   booleanos (`isCleanRewrite` / `isRedacted`) independentes de `entry.error` — a linha `ERROR:`
+   imprime sempre que `error` estiver presente, e a seção "after the rewrite: still orphan ...
+   removed" imprime sempre que `redactedSentences.length > 0`, **nos dois casos ao mesmo tempo**
+   quando os dois forem verdadeiros. "answer unchanged" só sai no único caso em que é verdade: a
+   chamada falhou **e** a redação não encontrou frase nenhuma pra remover (`orphans` não bate com
+   texto nenhum). Teste novo em `tests/trace.test.ts` ("critic entry with a call error that still
+   got redacted") cobre exatamente essa combinação.
+
+2. **Os 2 testes novos do achado 3 (rodada 1) não discriminavam a correção** — confirmado pelo
+   `revisor` por mutação (reintroduzindo a regex antiga): a suíte inteira passava, 305/305, porque
+   um teste usava um `orphans` que não batia com frase nenhuma (caí no retorno antecipado do
+   achado 2, sem passar pela segmentação) e o outro usava um `orphans` cujo resultado, por
+   coincidência, ficava igual nos dois lados depois do `join`. **Corrigido**: novo teste
+   `redactOrphanSentences("O time marcou 1.500 gols na temporada. Foram 4 vitórias seguidas.",
+   [500])` — 500 é um dos blocos de dígitos dentro de "1.500", então com a regex certa a frase
+   inteira sai (sem cortar o número no meio) e com a regex antiga sairia mutilada
+   ("O time marcou 1." separado de "500 gols..."). Validado por mutação eu mesmo: revertida a
+   regex para a versão antiga localmente, o teste novo falhou exatamente como esperado
+   (`removedSentences` veio `["500 gols na temporada. "]` em vez de
+   `["O time marcou 1.500 gols na temporada. "]`); regex restaurada antes do commit, sem diff
+   remanescente. Também renomeado/comentado o teste "invariante da segmentação" (que na verdade só
+   trava o comportamento do achado 2 — nenhum aviso sem remoção — não a segmentação) para deixar
+   isso explícito.
+
+3. **Documentação (código e spec) ainda descrevia o comportamento antigo** — o JSDoc de
+   `CriticReport.error` em `src/agent/nodes/critic.ts` (e a cópia dele na seção 8 desta spec) dizia
+   "a resposta original é mantida como estava", falso desde a correção do achado 1 da rodada 1.
+   **Corrigido**: texto agora descreve que a remoção determinística roda mesmo nesse caminho.
+   Também corrigidos a seção 8 item 3 e a tabela da seção 13 desta spec, que ainda diziam "devolve
+   o estado intacto"/"resposta original preservada" — ajustados para descrever o comportamento
+   atual (cai na remoção determinística, `lowConfidence: true`), com nota apontando para esta
+   seção em vez de duplicar a explicação.
+
+**Resultado dos testes desta rodada**: `npm test` — **307/307**, verde (305 antes desta rodada,
++1 teste novo em `tests/trace.test.ts` para o achado 1, +1 teste novo em `tests/agent/critic.test.ts`
+para o achado 2, mantendo o teste antigo do achado 3 da rodada 1 ao lado do novo).
 
 ## Revisão
 _A preencher._
