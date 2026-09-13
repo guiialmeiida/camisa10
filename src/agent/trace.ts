@@ -438,9 +438,28 @@ export function formatTrace(state: FinalState): string {
           break;
         }
 
-        const rewriteStatus = entry.rewritten
-          ? `answer rewritten (${MAX_ANSWER_REWRITES} of ${MAX_ANSWER_REWRITES})`
-          : "answer unchanged (critic call failed)";
+        // isCleanRewrite / isRedacted decide the whole block below, including the
+        // top-line status: `entry.rewritten` is false exactly when the critic call itself
+        // failed (critic.ts), but the correction that came out of round 1 of review still
+        // runs the deterministic redaction on that path — so "the call failed" and "the
+        // answer changed" are independent facts, and both have to show up when both are true
+        // (achado A of round 2: printing "unchanged" here contradicted the low-confidence
+        // warning below, which already listed the removed claim).
+        const isCleanRewrite = entry.rewritten && entry.remainingOrphanNumbers.length === 0;
+        const isRedacted = entry.redactedSentences.length > 0;
+
+        let rewriteStatus: string;
+        if (entry.rewritten) {
+          // Model rewrite ran (no call error) — clean or still-redacted, same status line;
+          // the "after the rewrite" body below spells out which one it was.
+          rewriteStatus = `answer rewritten (${MAX_ANSWER_REWRITES} of ${MAX_ANSWER_REWRITES})`;
+        } else if (isRedacted) {
+          rewriteStatus = "answer redacted (critic call failed, deterministic removal)";
+        } else {
+          // Call failed and the deterministic redaction found no sentence to remove — the
+          // only case where "unchanged" is actually true.
+          rewriteStatus = "answer unchanged (critic call failed)";
+        }
         lines.push(`    orphan numbers found: ${entry.orphanNumbers.join(", ")}   → ${rewriteStatus}`);
 
         if (entry.previousAnswer !== null) {
@@ -449,9 +468,11 @@ export function formatTrace(state: FinalState): string {
 
         if (entry.error !== undefined) {
           lines.push(`    ERROR: ${entry.error}`);
-        } else if (entry.rewritten && entry.remainingOrphanNumbers.length === 0) {
+        }
+
+        if (isCleanRewrite) {
           lines.push("    after the rewrite: clean");
-        } else if (entry.redactedSentences.length > 0) {
+        } else if (isRedacted) {
           const sentenceWord = entry.redactedSentences.length === 1 ? "sentence" : "sentences";
           lines.push(
             `    after the rewrite: still orphan: ${entry.remainingOrphanNumbers.join(", ")}   → ${entry.redactedSentences.length} ${sentenceWord} removed (deterministic)`,

@@ -815,6 +815,30 @@ describe("formatTrace", () => {
     expect(output).toContain("1 claim removed from the answer: number(s) 4 had no API backing");
   });
 
+  it("critic entry with a call error that still got redacted: shows both the ERROR and the removed sentences, never 'unchanged'", () => {
+    const trace: TraceEntry[] = [
+      {
+        node: "critic",
+        model: "claude-opus-5 (effort medium)",
+        ms: 1200,
+        orphanNumbers: [4],
+        rewritten: false,
+        remainingOrphanNumbers: [4],
+        redactedSentences: ["O time vinha de 4 vitórias seguidas [p05]."],
+        previousAnswer: "O Palmeiras perdeu por 1 x 3 [p03]. O time vinha de 4 vitórias seguidas [p05].",
+        error: "critic call failed: 500",
+      },
+    ];
+
+    const output = formatTrace(buildFinalState(trace));
+
+    expect(output).toContain("ERROR: critic call failed: 500");
+    expect(output).toContain("still orphan: 4");
+    expect(output).toContain("1 sentence removed (deterministic)");
+    expect(output).toContain('removed: "O time vinha de 4 vitórias seguidas [p05]."');
+    expect(output).not.toContain("answer unchanged");
+  });
+
   it("search_vector_context with attempt 1 prints exactly as before task 06 — no 'attempt' header, no 'query:' line", () => {
     const trace: TraceEntry[] = [
       {
