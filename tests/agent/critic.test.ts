@@ -242,12 +242,15 @@ describe("redactOrphanSentences", () => {
     expect(result.text).toBe(`O time venceu por 1 a 0. ${REDACTION_NOTICE}`);
   });
 
-  it("segmentation invariant: an orphan that matches no sentence removes nothing and appends no notice", () => {
+  it("achado 2 invariant (no orphan match -> no removal, no notice): an orphan that matches no sentence removes nothing and appends no notice", () => {
     const text = "Frase um. Frase dois! Frase três? Frase final sem pontuação";
 
     // 99 appears in none of the four sentences — the segmentation runs (unlike orphans: []
     // above, which returns early before it), finds nothing to remove, and returns the
-    // input untouched rather than warning about a removal that never happened.
+    // input untouched rather than warning about a removal that never happened. This locks
+    // achado 2's behavior (never warn about a removal that didn't happen); it does not
+    // exercise the thousands-separator segmentation below (achado 3), because no sentence
+    // here is even eligible to be cut.
     expect(redactOrphanSentences(text, [99])).toEqual({ text, removedSentences: [] });
   });
 
@@ -259,6 +262,21 @@ describe("redactOrphanSentences", () => {
     const result = redactOrphanSentences(text, [42]);
 
     expect(result).toEqual({ text, removedSentences: [] });
+  });
+
+  it("achado 3 (thousands separator): an orphan embedded in a thousands-separated number removes the whole sentence intact, not split at the '.'", () => {
+    const text = "O time marcou 1.500 gols na temporada. Foram 4 vitórias seguidas.";
+
+    // 500 is itself one of the digit runs inside "1.500" — the discriminating case the
+    // round-2 review asked for. With the old regex (any "." ends a sentence, no exception
+    // for a digit on both sides), this would split into "O time marcou 1." and "500 gols
+    // na temporada. ", removing only the second half and leaving the mutilated
+    // "O time marcou 1." behind. With the fixed regex, "1.500" is never split: the whole
+    // first sentence goes, the second sentence (which doesn't contain 500) survives whole.
+    const result = redactOrphanSentences(text, [500]);
+
+    expect(result.removedSentences).toEqual(["O time marcou 1.500 gols na temporada. "]);
+    expect(result.text).toBe(`Foram 4 vitórias seguidas. ${REDACTION_NOTICE}`);
   });
 
   it("a real removal alongside a thousands-separated number in a kept sentence: the number survives intact", () => {
