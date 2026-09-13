@@ -1013,7 +1013,11 @@ mockado:
   `citedPassages` recalculado, `lowConfidence` **não** sobe sozinho;
 - `critique` com órfão e refação ainda suja → `redactedSentences` não vazio,
   `answer.lowConfidence === true`, e `callText` chamado **uma vez só** (`MAX_ANSWER_REWRITES`);
-- `critique` com `callText` rejeitando → resposta original preservada, `report.error` preenchido;
+- `critique` com `callText` rejeitando → cai na mesma remoção determinística de "refação ainda suja"
+  (`redactedSentences` não vazio, `answer.lowConfidence === true`), com `report.error` preenchido
+  distinguindo esse caso de "refação rodou e não resolveu" — corrigido na rodada de correção 1
+  (achado 1) depois de a versão original desta linha (que dizia "resposta original preservada")
+  mascarar um vazamento real de número órfão nesse caminho;
 - o prompt do crítico **não contém** `<context source="vector_index">` (regra de ouro, seção 12);
 - `MAX_ANSWER_REWRITES === 1` travado por teste.
 
@@ -1395,7 +1399,47 @@ A segunda revisão achou 3 problemas remanescentes na correção acima:
 para o achado 2, mantendo o teste antigo do achado 3 da rodada 1 ao lado do novo).
 
 ## Revisão
-_A preencher._
+
+Três rodadas locais, antes do PR — o teto que o `CLAUDE.md` fixa.
+
+**Rodada 1**: 4 achados, o mais sério tocando a proteção que esta tarefa inteira existe para dar —
+quando a chamada do crítico (`callText`) falhava depois da checagem determinística sinalizar
+número órfão, a resposta original (com o órfão) era devolvida intocada, sem cair na remoção
+determinística nem subir `lowConfidence`. Corrigido: esse caminho agora converge para a mesma
+remoção determinística do caso "refação ainda suja". Os outros três: um teste que não exercitava
+a segmentação de frase que dizia testar; a segmentação cortando dentro de número com separador de
+milhar em português ("1.500"); e o doc de aprendizado prometendo uma garantia absoluta que só
+ficou verdadeira depois da correção do achado principal.
+
+**Rodada 2**: 3 achados remanescentes, todos de rastro/documentação (nenhum de vazamento de
+número) — o traço imprimia "answer unchanged" mesmo quando a resposta tinha sido de fato redigida
+pela correção da rodada 1 (contradizendo a si mesmo, na mesma saída, com o aviso de baixa
+confiança logo abaixo); os dois testes novos da rodada 1 para o bug do "1.500" não discriminavam a
+correção (passavam com a regex antiga reintroduzida); e JSDoc/spec ainda descreviam o comportamento
+pré-correção. Todos corrigidos.
+
+**Rodada 3 (teto)**: confirmou as 3 correções da rodada 2 por mutação independente (não só pela
+palavra do implementador) e achou **1 achado residual, de documentação**: uma linha da lista de
+testes da seção 14 da spec ainda dizia "resposta original preservada" no caminho de falha do
+crítico — a mesma alegação que, na versão de código anterior à rodada 1, mascarava o vazamento real.
+Como o teto de rodadas automáticas foi atingido e o achado não pedia nenhuma decisão (só corrigir a
+linha pra bater com o código já corrigido), eu mesmo apliquei a correção diretamente, sem nova
+rodada de `implementador`/`revisor`.
+
+**Veredito final**: sem achado de comportamento pendente. A regra de ouro foi verificada em runtime
+por execução real (não só por teste) nas três rodadas, incluindo fuzz de 20.000 textos sobre
+`redactOrphanSentences` (rodada 2) sem nenhum vazamento de número órfão.
 
 ## Testes
-_A preencher._
+
+- `npm test` (`tsc --noEmit && vitest run`, sem rede/Docker): **307/307 passando**, 24 arquivos de
+  teste (303/303 ao fim da implementação inicial; +2 na rodada de correção 1, +2 na rodada 2).
+- `tests/integration/feedback-loops.test.ts` (novo): gravado e reproduzido com sucesso
+  (`LLM_CASSETTE=record`/`=replay`), cobre o loop 2 fim a fim com dados reais.
+- `tests/integration/golden-rule.test.ts`: confirmado verde contra a API real, nas 3 rodadas que o
+  teste exige, na revisão da rodada 1 — a suspeita inicial de bloqueio por rate limit do Voyage
+  free tier (o loop 1 pode gastar até 3 chamadas de embedding numa única pergunta) não se
+  confirmou como bloqueio permanente; rodou completo com paciência pro rate limit.
+- `npm run demo:loops` (novo, `tests/eval/loops-demo.ts`): testado manualmente, mostra o loop 2
+  disparando de propósito (cenário que o caminho normal não produz, já que o redator funcionando
+  não inventa número por conta própria).
