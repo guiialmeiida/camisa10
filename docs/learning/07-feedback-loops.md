@@ -111,10 +111,22 @@ imperfeitamente.
 já visto, mesmo que abaixo do limiar de aprovação (a resposta sai com aviso de baixa confiança,
 dizendo que não achou contexto relevante). No loop 2, significa que, se a refação do modelo ainda
 deixar um número sem lastro, o código — não mais um modelo — remove a frase que carrega esse
-número, determinísticamente, e marca a resposta como baixa confiança. Essa segunda camada
-determinística no teto é o que garante que a regra de ouro nunca seja violada por *falta de
-tentativas*: mesmo que o `opus-5` erre, o pior caso é uma resposta mais curta, nunca uma resposta
-com um número inventado.
+número, determinísticamente, e marca a resposta como baixa confiança. **A própria chamada ao
+crítico falhando (erro de rede, API fora do ar) cai no mesmo caminho**: é tratada como se a única
+refação permitida já tivesse rodado e não tivesse resolvido nada, então a remoção determinística
+entra do mesmo jeito — o traço registra a falha da chamada separado do caso "refação não resolveu",
+mas o usuário nunca vê a diferença, porque o resultado é o mesmo texto sem números órfãos. Essa
+segunda camada determinística no teto é o que garante que a regra de ouro nunca seja violada por
+*falta de tentativas nem por indisponibilidade do próprio crítico*: mesmo que o `opus-5` erre ou
+esteja fora do ar, o pior caso é uma resposta mais curta, nunca uma resposta com um número
+inventado.
+
+Uma limitação residual, rara: a remoção por frase corta no primeiro `.`/`!`/`?`/`…` seguido de
+espaço ou fim de texto, e um `.` cercado de dígitos (separador de milhar, "1.500") é tratado como
+parte do número, não como fim de frase — mas o segmentador ainda não é um tokenizador de frases
+completo, e algum outro padrão de pontuação não previsto poderia, em teoria, cortar uma frase no
+meio de um jeito que não gera número órfão mas também não é a frase inteira. Mitigado para o caso
+concreto conhecido (números com milhar), não eliminado por completo.
 
 ## Por que não X?
 
