@@ -1291,7 +1291,27 @@ uma contradição spec-vs-schema, uma inconsistência de texto no prompt, e uma 
 chamada já existente roda.
 
 ## Revisão
-_A preencher._
+
+Duas rodadas locais, antes do PR.
+
+**Rodada 1**: 3 achados, nenhum na regra de ouro. (1) A spec se contradizia: o schema de
+`fdTeamMatchSchema.competition` exigia `code`/`name`, mas a regra/tabela de erro mandava descartar
+só o jogo quando `competition` não declarasse os dois — a forma mais restrita (o schema) derrubava
+a validação do corpo inteiro em vez de perder só um jogo. Resolvido a favor da intenção do texto:
+schema afrouxado, guard em `mapTeamForm` cobrindo os três casos (ausente, `null`, sem `code`/`name`).
+(2) O system prompt do redator anunciava "duas seções" mas listava três no modo `team_form` —
+corrigido para uma frase que não conta. (3) O adversário de jogos que seriam descartados (fora do
+Brasileirão, além do único `otherCompetitionMatch` mantido) era resolvido antes da partição,
+gerando até 7 avisos "time desconhecido" por pergunta — reordenado para resolver só os jogos
+sobreviventes; caiu pra no máximo 6, tipicamente 1.
+
+**Rodada 2**: confirmou os 3 achados resolvidos, cada um por mutação (não só leitura) — reverter
+qualquer uma das três correções faz o teste correspondente falhar. **Sem achado novo.** Duas
+observações não bloqueantes, registradas para referência futura: a frase corrigida do prompt não
+tem teste próprio (regressão ali passaria silenciosa); e a resolução de adversários sobreviventes
+agora roda em paralelo (`Promise.all`) em vez de sequencial, sem efeito de corretude.
+
+Veredito final: **sem achado, pronto para PR.**
 
 ## Testes
 
