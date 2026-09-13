@@ -13,8 +13,12 @@ export const MODELS = {
   // Ingestion (task 02), not an agent runtime node — classifies PassageType per passage.
   passageClassification: { model: "claude-haiku-4-5", maxTokens: 128 },
   planner: { model: "claude-opus-5", effort: "medium", maxTokens: 1024 },
+  /** One call per retrieved passage, N in parallel — the answer is a boolean plus one sentence. */
+  grader: { model: "claude-haiku-4-5", maxTokens: 256 },
   writer: { model: "claude-opus-5", effort: "high", maxTokens: 2048 },
-  // grader and critic arrive in task 06
+  /** Only ever called after the deterministic check flagged something — it rewrites a whole
+   *  answer, so it gets the writer's token budget, not the grader's. */
+  critic: { model: "claude-opus-5", effort: "medium", maxTokens: 2048 },
 } as const satisfies Record<string, ModelConfig>;
 
 export const EMBEDDING = {
