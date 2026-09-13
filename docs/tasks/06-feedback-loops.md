@@ -1281,6 +1281,64 @@ mecânicas ou de lista, não de comportamento ou contrato.
 - `peso_metadado` continua pendência explícita (mencionada de novo na seção 17 da spec) — não é
   desta tarefa.
 
+### Rodada de correção (revisão local, 2026-09-13)
+
+O `revisor` apontou 4 achados. Todos corrigidos, na branch `feat/06-feedback-loops`, sem criar
+branch nova:
+
+1. **(Achado mais sério) Falha na chamada do crítico deixava o número órfão vazar** —
+   `src/agent/nodes/critic.ts`, `critique()`: quando a checagem determinística sinaliza número
+   órfão e a chamada a `callText` para reescrever a resposta falhava, o código devolvia o estado
+   intacto — resposta original com o número órfão, sem elevar `lowConfidence`. Único ponto em que
+   a regra de ouro podia ser violada de verdade em produção. **Corrigido** por decisão já tomada
+   por quem orquestrou o ciclo: a falha da chamada agora converge no mesmo caminho de remoção
+   determinística que já existia para "refação ainda tem número órfão" — `rewrittenText` recebe o
+   próprio texto original quando `callText` rejeita, o `remaining` calculado sobre ele reproduz os
+   mesmos órfãos, e a função cai direto em `redactOrphanSentences` com `lowConfidence: true`. O
+   traço já distinguia os dois motivos por construção (`report.error` só existe no caso de falha
+   de chamada; `report.remainingOrphanNumbers`/`redactedSentences` cobrem os dois), sem precisar
+   de campo novo. `tests/agent/critic.test.ts`: o teste "callText rejeitando" foi reescrito para
+   verificar que o número órfão não aparece mais na resposta final e que `lowConfidence` vira
+   `true`, em vez de esperar a resposta original intacta.
+
+2. **Teste do "invariante da segmentação" não testava nada** — `tests/agent/critic.test.ts`
+   chamava `redactOrphanSentences(text, [])`, que já retorna cedo em `critic.ts` antes de a regex
+   de fatiamento rodar (`orphans.length === 0`); era um teste duplicado do "orphans vazio devolve
+   texto idêntico" sob outro nome. Confirmado rodando: com `orphans: [99]` (número que não bate
+   com frase nenhuma), o comportamento anterior de fato anexava `REDACTION_NOTICE` mesmo sem
+   remover nada. **Corrigido pela opção (a)**: `redactOrphanSentences` agora só anexa o aviso
+   quando `removedSentences.length > 0` — não faz sentido avisar "uma afirmação foi removida"
+   quando nada foi removido. Não muda nenhum caminho de produção: `critique()` só chama essa
+   função com `remaining` vindo de `findOrphanNumbers` sobre o próprio texto, que por construção
+   sempre bate com pelo menos uma frase. O teste foi reescrito para exercitar a segmentação de
+   verdade com um orphan que não casa com frase nenhuma.
+
+3. **Segmentação por frase cortava dentro de número com separador de milhar** —
+   `redactOrphanSentences` tratava qualquer `.` como fim de frase, inclusive o `.` de "1.500",
+   produzindo uma frase truncada e falsa ("O time marcou 1."). **Corrigido**: a regex de
+   fatiamento agora usa um "átomo de frase" que trata `.` entre dois dígitos como parte do número
+   (via lookbehind/lookahead), não como terminador — só `.`/`!`/`?`/`…` que não estejam cercados
+   de dígitos terminam uma frase. Dois testes novos cobrem o caso: um número de milhar sozinho
+   (nada é removido, o texto sai intacto) e um número de milhar numa frase mantida ao lado de uma
+   frase removida por outro motivo (o número sobrevive inteiro).
+
+4. **Doc de aprendizado prometia garantia absoluta que só ficou verdadeira depois do achado 1** —
+   `docs/learning/07-feedback-loops.md`: o parágrafo sobre o teto do loop 2 agora menciona
+   explicitamente que a falha da própria chamada ao crítico cai no mesmo caminho determinístico
+   (antes da correção, esse era o buraco que tornava a frase "nunca uma resposta com número
+   inventado" falsa nesse caminho específico). Acrescentada também uma frase curta sobre a
+   limitação residual do achado 3 (a remoção por frase, mitigada para o caso de milhar mas não um
+   tokenizador de frases completo).
+
+**Não avaliei como necessário** um teste de integração novo para o achado 1 (a `feedback-loops.test.ts`
+já existente exercita o loop 2 fim a fim com dados reais; o comportamento de falha de chamada é
+melhor coberto por unidade, com o `callText` mockado para rejeitar, que é exatamente o que o teste
+de unidade reescrito faz — reproduzir uma falha de rede real de propósito numa suíte de integração
+seria frágil sem trazer cobertura adicional).
+
+**Resultado dos testes desta rodada**: `npm test` — **305/305**, verde (303 antes da correção,
++3 testes novos, -1 teste que não testava nada e foi reescrito no lugar = líquido +2).
+
 ## Revisão
 _A preencher._
 
