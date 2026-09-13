@@ -46,6 +46,15 @@ export function buildCurrentMatchweekFilter(params: CurrentMatchweekFilterParams
   return { must };
 }
 
+/**
+ * The rigid filter for the team_form mode: the passage must mention the team.
+ * Always applied in this mode (discovery, item 6) — the caller is responsible for not
+ * calling it when there is no team (discovery, item 7).
+ */
+export function buildTeamFormFilter(team: string): QdrantFilter {
+  return { must: [{ key: "teams", match: { value: team } }] };
+}
+
 function buildDateClause(facts: Facts | null, now: Date): FilterClause | null {
   if (facts === null || facts.matches.length === 0) {
     return null;
