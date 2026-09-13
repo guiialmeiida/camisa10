@@ -242,10 +242,13 @@ describe("redactOrphanSentences", () => {
     expect(result.text).toBe(`O time venceu por 1 a 0. ${REDACTION_NOTICE}`);
   });
 
-  it("segmentation invariant: joining the slices reproduces the input when nothing is removed", () => {
+  it("segmentation invariant: an orphan that matches no sentence removes nothing and appends no notice", () => {
     const text = "Frase um. Frase dois! Frase três? Frase final sem pontuação";
 
-    expect(redactOrphanSentences(text, [])).toEqual({ text, removedSentences: [] });
+    // 99 appears in none of the four sentences — the segmentation runs (unlike orphans: []
+    // above, which returns early before it), finds nothing to remove, and returns the
+    // input untouched rather than warning about a removal that never happened.
+    expect(redactOrphanSentences(text, [99])).toEqual({ text, removedSentences: [] });
   });
 });
 

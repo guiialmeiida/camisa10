@@ -132,6 +132,13 @@ export function redactOrphanSentences(text: string, orphans: number[]): Redactio
     }
   }
 
+  // Nothing was actually removed (a caller passing an `orphans` number that appears in
+  // none of `text`'s sentences): return the input untouched, no notice. Warning about a
+  // removal that didn't happen would be its own false claim.
+  if (removed.length === 0) {
+    return { text, removedSentences: [] };
+  }
+
   const survivors = kept.join("").trim();
 
   if (survivors.length === 0) {
