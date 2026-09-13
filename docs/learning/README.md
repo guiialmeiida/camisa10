@@ -19,5 +19,6 @@ onde mora a maior parte do aprendizado, porque é o que não aparece no código 
 | [03-ingestion-pipeline.md](03-ingestion-pipeline.md) | Por que ingestão é convergência, não reconstrução — id determinístico, digest de conteúdo, e onde classificar com LLM é seguro | 02 |
 | [04-chunking.md](04-chunking.md) | Por que um vetor por documento longo dilui o assunto, o que a sobreposição compra, por que tamanho fixo (não parágrafo/sentença), e por que chunking quebra "um passage = um point" | 03 |
 | [05-rigid-filters.md](05-rigid-filters.md) | Por que similaridade não sabe que dia é hoje, pré-filtrar vs. pós-processar, por que `publishedAt` e não `payload.matchweek`, e o custo em paralelismo de um filtro que depende de fato | 04 |
+| [06-time-decay.md](06-time-decay.md) | Pré-filtrar vs. pós-processar, por que decaimento exponencial com meia-vida em vez de janela rígida ou decaimento linear, e por que pós-processamento exige um pool de candidatos maior que `k` | 05 |
 
 _(cresce conforme as tarefas andam)_

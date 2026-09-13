@@ -110,7 +110,10 @@ Para os termos de domínio não se retraduzirem a cada arquivo, a tradução é 
 | convergir para a fonte | `incremental` | | pedaço de um passage (chunking) | `chunk` |
 | sobreposição entre chunks | `overlap` | | chunk sem escrita mais recente | `orphan chunk` |
 | filtro rígido | `filter` | | janela de publicação | `publishedAt window` |
-| janela retroativa | `lookback` | | | |
+| janela retroativa | `lookback` | | forma recente | `recentForm` |
+| meia-vida | `halfLife` | | retrospecto (V-E-D) | `record` |
+| pool de candidatos | `candidate pool` | | mando de campo (casa/fora) | `side` |
+| partida de outra competição | `otherCompetitionMatch` | | código da competição na fonte | `competitionCode` |
 
 Os nós do agente mantêm os nomes já usados neste documento: `planner`, `grader`, `writer`
 (redator), `critic` (crítico), `entityExtraction` (extração de entidade).
@@ -128,9 +131,15 @@ score = similaridade_semantica x peso_metadado x decaimento_temporal
 
 Cada modo de consulta ajusta os pesos e os filtros rígidos, mas usa a mesma fórmula base.
 
-A tarefa 04 implementou **só** o filtro rígido do `current_matchweek` (janela de `publishedAt` +
-cláusula de `teams`, aplicada antes da similaridade); `peso_metadado` e `decaimento_temporal`
-continuam pendentes e são escopo da tarefa 05.
+A tarefa 04 implementou o filtro rígido do `current_matchweek` (janela de `publishedAt` + cláusula
+de `teams`, aplicada antes da similaridade). A tarefa 05 implementou `decaimento_temporal` — **só
+no modo `team_form`** — exponencial, meia-vida de 14 dias, como pós-processamento client-side sobre
+um pool de candidatos maior que `k` (o `filter` do Qdrant é booleano, não multiplicador). O modo
+`team_form` também ganhou filtro rígido obrigatório por `teams`, sempre aplicado, diferente do
+`current_matchweek` onde essa cláusula é condicional.
+
+`peso_metadado` continua fixo em 1 — **pendência explícita, não implementada** por nenhuma tarefa
+até aqui.
 
 ## Como saber se melhorou
 

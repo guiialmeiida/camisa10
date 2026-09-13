@@ -6,7 +6,8 @@ import { toSaoPauloIso } from "./time.ts";
 import type { Match, MatchStatus, Team } from "./types.ts";
 
 const FOOTBALL_DATA_BASE = "https://api.football-data.org/v4";
-const COMPETITION_CODE = "BSA"; // Brasileirão Série A (discovery item 2)
+/** The competition code this project follows, as football-data.org spells it (task 05, §4). */
+export const COMPETITION_CODE = "BSA"; // Brasileirão Série A (discovery item 2)
 
 export interface CompetitionInfo {
   name: string;
@@ -51,6 +52,33 @@ export const footballDataMatchesSchema = z.object({
   matches: z.array(fdMatchSchema),
 });
 
+/**
+ * A match in the *team* endpoint's response (task 05, §4/§2) — a different shape from
+ * /competitions/BSA/matches: no top-level `competition`, `matchday` can be null (unused
+ * here), and each match carries its own `competition` (the team endpoint mixes
+ * competitions — live verification confirmed the mix: §2 of the task's spec).
+ * `z.object`, not `strictObject`: the real response has dozens of fields (`area`, `season`,
+ * `referees`, `odds`…) that this project never reads.
+ */
+const fdTeamMatchSchema = z.object({
+  id: z.number().int(),
+  utcDate: z.string(),
+  status: z.string(),
+  // nullish even though the live call returned it on every match: a boundary schema
+  // describes what the client tolerates receiving, not what it expects (task 05, §4).
+  // `code`/`name` are themselves optional (not just the object) so a match whose
+  // `competition` is present but missing one of them still validates — mapTeamForm's
+  // guard is what decides whether that match is usable, not this schema. A schema that
+  // required both would fail the *entire* body's safeParse over a single unrecognizable
+  // game, turning "drop one game" into "lose the whole retrospecto" (task 05, §5/§12).
+  competition: z.object({ code: z.string().optional(), name: z.string().optional() }).nullish(),
+  homeTeam: fdTeamSchema,
+  awayTeam: fdTeamSchema,
+  score: fdScoreSchema,
+});
+
+export const footballDataTeamMatchesSchema = z.object({ matches: z.array(fdTeamMatchSchema) });
+
 export const footballDataCompetitionSchema = z.object({
   name: z.string(),
   code: z.string(),
@@ -58,7 +86,9 @@ export const footballDataCompetitionSchema = z.object({
 });
 
 // The only allowed translation from football-data.org's status strings — see spec §6's table.
-const STATUS_MAP: Record<string, MatchStatus> = {
+// Exported (task 05) so team-form.ts shares the same FINISHED/AWARDED -> "finished" rule
+// instead of redefining it.
+export const STATUS_MAP: Record<string, MatchStatus> = {
   FINISHED: "finished",
   AWARDED: "finished",
   IN_PLAY: "live",
@@ -139,6 +169,15 @@ export function resetCompetitionCacheForTests(): void {
 /** GET /v4/competitions/BSA/matches?matchday=N — the raw, unvalidated response body. */
 export async function fetchMatchweek(matchweek: number): Promise<unknown> {
   return request(`/competitions/${COMPETITION_CODE}/matches`, { matchday: String(matchweek) });
+}
+
+/**
+ * GET /v4/teams/{id}/matches?status=FINISHED&limit=N — the raw, unvalidated response
+ * body. Task 05: the team's own recent history, in *any* competition (§2) — the caller
+ * (team-form.ts) is what splits it back into "this project's competition" vs. the rest.
+ */
+export async function fetchTeamMatches(footballDataId: number, limit: number): Promise<unknown> {
+  return request(`/teams/${footballDataId}/matches`, { status: "FINISHED", limit: String(limit) });
 }
 
 export interface MappedMatches {

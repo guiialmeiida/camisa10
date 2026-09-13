@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { CURRENT_MATCHWEEK_LOOKBACK_DAYS, buildCurrentMatchweekFilter } from "../../src/retrieval/filters.ts";
+import {
+  CURRENT_MATCHWEEK_LOOKBACK_DAYS,
+  buildCurrentMatchweekFilter,
+  buildTeamFormFilter,
+} from "../../src/retrieval/filters.ts";
 import type { Facts, Match } from "../../src/sources/index.ts";
 
 function buildFacts(matches: Match[]): Facts {
@@ -204,6 +208,14 @@ describe("buildCurrentMatchweekFilter", () => {
     // earlier, at the same clock time, is 2026-09-06T00:30:00.000Z.
     expect(filter).toEqual({
       must: [{ key: "publishedAt", range: { gte: "2026-09-06T00:30:00.000Z", lte: now.toISOString() } }],
+    });
+  });
+});
+
+describe("buildTeamFormFilter", () => {
+  it("matches the spec §6 literal example exactly", () => {
+    expect(buildTeamFormFilter("palmeiras")).toEqual({
+      must: [{ key: "teams", match: { value: "palmeiras" } }],
     });
   });
 });

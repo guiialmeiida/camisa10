@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { buildPrompt, computeLowConfidence, extractCitations } from "../src/generation/writer.ts";
+import { buildPrompt, buildRecentFormSection, computeLowConfidence, extractCitations } from "../src/generation/writer.ts";
 import type { StateWithData } from "../src/agent/state.ts";
+import type { TeamForm } from "../src/sources/team-form.ts";
 
 function buildState(overrides: Partial<StateWithData> = {}): StateWithData {
   const base: StateWithData = {
@@ -57,16 +58,57 @@ function buildState(overrides: Partial<StateWithData> = {}): StateWithData {
         },
       },
     ],
+    recentForm: null,
   };
 
   return { ...base, ...overrides };
 }
 
-function extractSection(text: string, tag: "facts" | "context"): string {
+function buildTeamForm(overrides: Partial<TeamForm> = {}): TeamForm {
+  return {
+    team: "palmeiras",
+    matches: [
+      {
+        id: "545231",
+        date: "2026-09-05T21:30:00-03:00",
+        opponent: "fluminense",
+        side: "home",
+        score: { home: 1, away: 3 },
+        result: "loss",
+        competition: { code: "BSA", name: "Campeonato Brasileiro Série A" },
+      },
+      {
+        id: "545210",
+        date: "2026-08-31T17:00:00-03:00",
+        opponent: "bahia",
+        side: "away",
+        score: { home: 0, away: 2 },
+        result: "win",
+        competition: { code: "BSA", name: "Campeonato Brasileiro Série A" },
+      },
+    ],
+    otherCompetitionMatch: {
+      id: "551004",
+      date: "2026-09-03T20:30:00-03:00",
+      opponent: "ca-river-plate",
+      side: "home",
+      score: { home: 2, away: 0 },
+      result: "win",
+      competition: { code: "CLI", name: "Copa Libertadores" },
+    },
+    record: { wins: 1, draws: 0, losses: 1 },
+    source: "api",
+    ...overrides,
+  };
+}
+
+function extractSection(text: string, tag: "facts" | "context" | "recent_form"): string {
   const pattern =
     tag === "facts"
       ? /<facts source="api">([\s\S]*?)<\/facts>/
-      : /<context source="vector_index">([\s\S]*?)<\/context>/;
+      : tag === "recent_form"
+        ? /<recent_form source="api">([\s\S]*?)<\/recent_form>/
+        : /<context source="vector_index">([\s\S]*?)<\/context>/;
   const match = text.match(pattern);
   if (!match?.[1]) throw new Error(`section ${tag} not found in prompt`);
   return match[1];
@@ -121,11 +163,64 @@ describe("buildPrompt", () => {
     expect(prompt.system).toMatch(/não crie seções/i);
   });
 
-  it("team_form: the prompt stays exactly as before — no current_matchweek instruction", () => {
-    const prompt = buildPrompt(buildState({ plan: { ...buildState().plan, mode: "team_form" } }));
+  it("team_form: no current_matchweek instruction, but the retrospecto instruction and the recent_form section are present", () => {
+    const prompt = buildPrompt(
+      buildState({ plan: { ...buildState().plan, mode: "team_form" }, recentForm: buildTeamForm() }),
+    );
 
     expect(prompt.system).not.toContain("finished ou live");
     expect(prompt.system).not.toMatch(/não crie seções/i);
+    expect(prompt.system).toMatch(/comece pelo retrospecto/i);
+    expect(prompt.system).toMatch(/nunca a some ao número de vitórias, empates ou derrotas/i);
+    expect(prompt.user).toContain('<recent_form source="api">');
+    expect(extractSection(prompt.user, "recent_form")).toContain("1V 0E 1D");
+  });
+
+  it("team_form: otherCompetitionMatch present adds the 'Fora do campeonato' line with the competition name", () => {
+    const prompt = buildPrompt(
+      buildState({ plan: { ...buildState().plan, mode: "team_form" }, recentForm: buildTeamForm() }),
+    );
+
+    const section = extractSection(prompt.user, "recent_form");
+    expect(section).toContain("Fora do campeonato, partida mais recente:");
+    expect(section).toContain("Copa Libertadores");
+  });
+
+  it("team_form: otherCompetitionMatch null omits the 'Fora do campeonato' line", () => {
+    const prompt = buildPrompt(
+      buildState({
+        plan: { ...buildState().plan, mode: "team_form" },
+        recentForm: buildTeamForm({ otherCompetitionMatch: null }),
+      }),
+    );
+
+    expect(extractSection(prompt.user, "recent_form")).not.toContain("Fora do campeonato");
+  });
+
+  it("team_form: matches empty with otherCompetitionMatch present shows both the empty-record phrase and the other-competition line", () => {
+    const prompt = buildPrompt(
+      buildState({
+        plan: { ...buildState().plan, mode: "team_form" },
+        recentForm: buildTeamForm({ matches: [], record: { wins: 0, draws: 0, losses: 0 } }),
+      }),
+    );
+
+    const section = extractSection(prompt.user, "recent_form");
+    expect(section).toContain("nenhum jogo encerrado do campeonato");
+    expect(section).toContain("Fora do campeonato, partida mais recente:");
+  });
+
+  it("team_form: recentForm null shows the unavailability phrase, and the section still appears", () => {
+    const prompt = buildPrompt(buildState({ plan: { ...buildState().plan, mode: "team_form" }, recentForm: null }));
+
+    expect(prompt.user).toContain('<recent_form source="api">');
+    expect(extractSection(prompt.user, "recent_form")).toContain("não foi possível obter os últimos jogos");
+  });
+
+  it("current_matchweek: no <recent_form> section at all", () => {
+    const prompt = buildPrompt(buildState({ recentForm: buildTeamForm() }));
+
+    expect(prompt.user).not.toContain("<recent_form");
   });
 
   it("buildFactsSection keeps the matches in the order facts.matches returns them — no reordering", () => {
@@ -167,6 +262,43 @@ describe("buildPrompt", () => {
   });
 });
 
+describe("buildRecentFormSection", () => {
+  const teams = [
+    { id: "palmeiras", name: "Palmeiras", nicknames: [] },
+    { id: "fluminense", name: "Fluminense", nicknames: [] },
+    { id: "bahia", name: "Bahia", nicknames: [] },
+  ];
+
+  it("matches the spec §10 literal example", () => {
+    // "CA River Plate" only renders with its full name when it's resolvable via `teams`
+    // (teamName degrades to the raw slug otherwise, e.g. "ca-river-plate") — added here
+    // to reproduce the spec's literal example faithfully.
+    const teamsWithOpponent = [...teams, { id: "ca-river-plate", name: "CA River Plate", nicknames: [] }];
+    const section = buildRecentFormSection(buildTeamForm(), teamsWithOpponent);
+
+    expect(section).toContain("Palmeiras — últimos 2 jogos encerrados no Campeonato Brasileiro Série A: 1V 0E 1D");
+    expect(section).toContain("05/09 — Palmeiras 1 x 3 Fluminense — casa — derrota");
+    expect(section).toContain("31/08 — Bahia 0 x 2 Palmeiras — fora — vitória");
+    expect(section).toContain(
+      "Fora do campeonato, partida mais recente: 03/09 — Palmeiras 2 x 0 CA River Plate — casa — vitória — Copa Libertadores",
+    );
+  });
+
+  it("recentForm null: the unavailability phrase", () => {
+    expect(buildRecentFormSection(null, teams)).toContain("não foi possível obter os últimos jogos do time");
+  });
+
+  it("matches empty, no otherCompetitionMatch: only the empty-record phrase", () => {
+    const section = buildRecentFormSection(
+      { team: "palmeiras", matches: [], otherCompetitionMatch: null, record: { wins: 0, draws: 0, losses: 0 }, source: "api" },
+      teams,
+    );
+
+    expect(section).toContain("nenhum jogo encerrado do campeonato encontrado para esse time");
+    expect(section).not.toContain("Fora do campeonato");
+  });
+});
+
 describe("extractCitations", () => {
   it("discards a citation to a passage that wasn't retrieved (spec §6)", () => {
     const retrievedIds = new Set(["p03"]);
@@ -187,15 +319,48 @@ describe("extractCitations", () => {
 
 describe("computeLowConfidence", () => {
   it("is true when context is empty, even with facts present", () => {
-    expect(computeLowConfidence({ context: [], facts: buildState().facts })).toBe(true);
+    const state = buildState();
+    expect(computeLowConfidence({ context: [], facts: state.facts, plan: state.plan, recentForm: null })).toBe(true);
   });
 
   it("is true when facts is null, even with context present", () => {
-    expect(computeLowConfidence({ context: buildState().context, facts: null })).toBe(true);
+    const state = buildState();
+    expect(
+      computeLowConfidence({ context: state.context, facts: null, plan: state.plan, recentForm: null }),
+    ).toBe(true);
   });
 
-  it("is false when both facts and context are present", () => {
+  it("is false when both facts and context are present (current_matchweek, recentForm irrelevant)", () => {
     const state = buildState();
-    expect(computeLowConfidence({ context: state.context, facts: state.facts })).toBe(false);
+    expect(
+      computeLowConfidence({ context: state.context, facts: state.facts, plan: state.plan, recentForm: null }),
+    ).toBe(false);
+  });
+
+  it("is true in team_form when recentForm is null, even with context and facts present", () => {
+    const state = buildState({ plan: { ...buildState().plan, mode: "team_form" } });
+    expect(
+      computeLowConfidence({ context: state.context, facts: state.facts, plan: state.plan, recentForm: null }),
+    ).toBe(true);
+  });
+
+  it("is false in team_form when recentForm, context and facts are all present", () => {
+    const state = buildState({ plan: { ...buildState().plan, mode: "team_form" } });
+    expect(
+      computeLowConfidence({
+        context: state.context,
+        facts: state.facts,
+        plan: state.plan,
+        recentForm: buildTeamForm(),
+      }),
+    ).toBe(false);
+  });
+
+  it("stays false in current_matchweek with recentForm null (unaffected by the new condition)", () => {
+    const state = buildState();
+    expect(state.plan.mode).toBe("current_matchweek");
+    expect(
+      computeLowConfidence({ context: state.context, facts: state.facts, plan: state.plan, recentForm: null }),
+    ).toBe(false);
   });
 });

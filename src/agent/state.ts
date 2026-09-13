@@ -1,4 +1,5 @@
 import type { Facts } from "../sources/index.ts";
+import type { TeamForm } from "../sources/team-form.ts";
 import type { SearchResult } from "../vectorstore/types.ts";
 // Type-only import: TraceEntry lives in trace.ts, which in turn needs FinalState from
 // here for formatTrace's signature. Both directions are `import type`, erased at
@@ -43,6 +44,9 @@ export interface StateWithPlan extends StateWithEntity {
 export interface StateWithData extends StateWithPlan {
   facts: Facts | null; // null = the call failed; the writer is told
   context: SearchResult[]; // [] = nothing retrieved, or the search failed
+  /** null outside team_form, or when the call failed. Never merged into `facts` — see
+   * task 05, spec §8, on why this is its own field rather than a field on Facts. */
+  recentForm: TeamForm | null;
 }
 export interface FinalState extends StateWithData {
   answer: Answer;
