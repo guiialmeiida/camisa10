@@ -98,6 +98,13 @@ export async function resolveTeamId(name: string): Promise<string | null> {
   return byNormalizedKey.get(normalize(name)) ?? null;
 }
 
+/** "palmeiras" -> 1769. Unknown team id -> null. Task 05: getTeamForm's own lookup, the
+ * reverse direction of teamIdFromFootballData below. */
+export async function footballDataIdFor(teamId: string): Promise<number | null> {
+  const { records } = await loadIndex();
+  return records.find((record) => record.id === teamId)?.footballDataId ?? null;
+}
+
 export interface FootballDataTeamResolution {
   id: string;
   /** True when `id` is a synthetic slug, not a curated teams.json entry. */
