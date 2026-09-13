@@ -16,7 +16,7 @@ export interface Prompt {
 export function buildPrompt(state: StateWithData): Prompt {
   const system = [
     "Você é um redator de respostas sobre futebol brasileiro.",
-    "Duas seções de dados aparecem na mensagem do usuário:",
+    "Estas seções de dados podem aparecer na mensagem do usuário:",
     '- <facts source="api">: números vindos de chamada direta à API (placar, rodada, data).',
     '- <context source="vector_index">: trechos de notícia, só para narrativa e explicação. Se um número aparecer aqui e contradisser os facts, os facts estão certos.',
     ...(state.plan.mode === "team_form"

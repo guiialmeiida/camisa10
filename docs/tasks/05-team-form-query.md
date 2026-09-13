@@ -1241,18 +1241,68 @@ do endpoint, partição, regra de ouro, testes) foi reinterpretada.
   garante de fato dar certo neste caso. Não é uma correção de comportamento — é registrar que o
   exemplo ilustrativo da spec é otimista nesse detalhe específico.
 
+### Rodada de correção (revisão local, rodada 1, 2026-09-13)
+
+O `revisor` apontou 3 achados reais, todos corrigidos nesta rodada:
+
+1. **A spec se contradizia consigo mesma, e o schema (mais restrito) vencia em silêncio.**
+   `fdTeamMatchSchema.competition` exigia `code`/`name` quando o objeto estava presente
+   (`z.object({ code: z.string(), name: z.string() }).nullish()`), então um jogo com `competition`
+   presente mas sem `code`/`name` (ex.: `{ id: 2013, name: "..." }`) derrubava o `safeParse` do
+   **corpo inteiro**, e `getTeamForm` perdia o retrospecto inteiro — enquanto a prosa da seção 5
+   (regra 2) e a tabela da seção 12 já descreviam esse terceiro caso como "descarta só aquele jogo".
+   Resolvido a favor da intenção em prosa (decisão de quem orquestra o ciclo, registrada no pedido de
+   correção): `competition: z.object({ code: z.string().optional(), name: z.string().optional() }).nullish()`
+   em `src/sources/football-data.ts`, e o guard em `mapTeamForm`
+   (`src/sources/team-form.ts`) passou a checar os três casos (ausente, `null`, ou presente sem
+   `code`/`name` utilizável) descartando só o jogo, com o mesmo `console.warn`. Nota registrada na
+   seção 5 (logo após "O jogo sem competição declarada"). O teste que antes só exercitava
+   `competition: null` (`tests/sources/team-form.test.ts`) passou a cobrir os três casos num teste só,
+   incluindo a checagem de que o corpo inteiro ainda valida.
+2. **O system prompt do redator anunciava "duas seções" e listava três no modo `team_form`.**
+   `src/generation/writer.ts`: a frase fixa "Duas seções de dados aparecem na mensagem do usuário:"
+   ficava intacta mesmo com o bullet de `<recent_form source="api">` acrescentado logo abaixo dela em
+   `team_form`. Trocada por uma frase que não conta seções ("Estas seções de dados podem aparecer na
+   mensagem do usuário:"), correta nos dois modos, sem tocar em mais nada do system (spec §10, item 1).
+3. **Resolver o adversário de jogos que seriam descartados gerava ruído.**
+   `src/sources/team-form.ts`: `teamIdFromFootballData` (que emite o `console.warn` de "time
+   desconhecido" para clube estrangeiro, em `teams.ts`) era chamado para **todos** os jogos válidos,
+   antes da partição BSA/`otherCompetitionMatch` — inclusive jogos de outra competição que não
+   sobrevivem ao corte de `RECENT_FORM_SIZE`. Com `FORM_FETCH_LIMIT = 20` trazendo até 7 jogos fora do
+   Brasileirão (verificado ao vivo, seção "A verificação ao vivo do endpoint" acima), isso podia gerar
+   até 7 avisos por pergunta, a maioria sobre jogos que nunca chegam à resposta. `mapTeamForm` foi
+   reordenado: a resolução do adversário (`teamIdFromFootballData`) agora roda só depois da partição e
+   do corte, sobre os jogos que sobrevivem (`matches`, até 5 do Brasileirão, mais o único
+   `otherCompetitionMatch`, se houver) — no máximo 6 avisos por pergunta, tipicamente menos. O resto da
+   lógica (validação, filtro de status/placar/competição, ordenação por data decrescente, cálculo de
+   `record` sobre os jogos do Brasileirão pós-corte) não mudou, só a ordem de "quando resolver o
+   adversário". Teste novo em `tests/sources/team-form.test.ts` trava esse invariante: com 6 jogos
+   BSA e 3 CLI, todos contra adversários desconhecidos, o número de avisos "unknown footballDataId" é
+   6 (5 sobreviventes do BSA + 1 `otherCompetitionMatch`), nunca 9.
+
+`npm test`: **247/247 passando** depois das correções (typecheck + vitest; 246 + 1 pelo teste novo do
+achado 3 — o teste do achado 1 substituiu um teste existente em vez de somar).
+`npx vitest run --config vitest.integration.config.ts tests/integration/live-sources.test.ts` (rede
+real): **3/3 passando**, confirmando que `getTeamForm` continua funcionando contra a API real depois
+do ajuste de schema do achado 1.
+
+Nenhum achado desta rodada tocou a regra de ouro nem o escopo da spec — os três eram, respectivamente,
+uma contradição spec-vs-schema, uma inconsistência de texto no prompt, e uma otimização de quando uma
+chamada já existente roda.
+
 ## Revisão
 _A preencher._
 
 ## Testes
 
-- `npm test` (`tsc --noEmit && vitest run`, sem rede/Docker): **246/246 passando**, 22 arquivos de
-  teste.
+- `npm test` (`tsc --noEmit && vitest run`, sem rede/Docker): **247/247 passando**, 22 arquivos de
+  teste (246/246 antes da rodada de correção acima; +1 pelo teste novo do achado 3).
 - `npx vitest run --config vitest.integration.config.ts tests/integration/live-sources.test.ts`
   (rede real, football-data.org/RSS, sem `LLM_CASSETTE`): **3/3 passando**, incluindo o caso novo de
   `getTeamForm("palmeiras")` — no máximo 5 jogos, todos BSA, ordem decrescente, `record` batendo com
   `matches.length`, e (quando presente) `otherCompetitionMatch` fora do BSA e sem overlap com
-  `matches`.
+  `matches`. Rodado de novo depois da rodada de correção, para confirmar o ajuste de schema do
+  achado 1 contra a API real.
 - `npm run test:integration` completo não foi rodado (gastaria a cota de Voyage/Anthropic de
   `golden-rule.test.ts`/`recall.test.ts`/`ingestion-incremental.test.ts`, que esta tarefa não toca e
   cuja flakiness pré-existente já está documentada na tarefa 04); o teste de integração relevante
