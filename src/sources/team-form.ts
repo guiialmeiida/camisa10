@@ -72,7 +72,25 @@ export async function mapTeamForm(teamId: string, footballDataId: number, raw: u
     );
   }
 
-  const survivors: TeamFormMatch[] = [];
+  // A candidate still carries the opponent as raw football-data.org id/name — resolving it
+  // to a slug (teamIdFromFootballData) is deferred until after the partition below, so it
+  // only ever runs for matches that actually survive into `matches`/`otherCompetitionMatch`.
+  // Resolving eagerly here would call it for every fetched match, including the ones the
+  // BSA cut and the "only the most recent other-competition match" rule throw away —
+  // needless synthetic-team console.warn noise for games nobody ever sees (task 05 review,
+  // achado 3).
+  interface Candidate {
+    id: string;
+    date: string;
+    side: "home" | "away";
+    score: Score;
+    result: MatchResult;
+    competition: { code: string; name: string };
+    opponentFootballDataId: number;
+    opponentFallbackName: string;
+  }
+
+  const candidates: Candidate[] = [];
 
   for (const match of parsed.data.matches) {
     if (STATUS_MAP[match.status] !== "finished") {
@@ -113,41 +131,60 @@ export async function mapTeamForm(teamId: string, footballDataId: number, raw: u
       continue;
     }
 
-    const opponent = await teamIdFromFootballData(opponentFootballDataId, opponentFallbackName);
     const teamGoals = side === "home" ? homeGoals : awayGoals;
     const opponentGoals = side === "home" ? awayGoals : homeGoals;
     const result: MatchResult = teamGoals > opponentGoals ? "win" : teamGoals < opponentGoals ? "loss" : "draw";
 
-    survivors.push({
+    candidates.push({
       id: String(match.id),
       date: toSaoPauloIso(match.utcDate),
-      opponent: opponent.id,
       side,
       score: { home: homeGoals, away: awayGoals },
       result,
       competition: { code: competition.code, name: competition.name },
+      opponentFootballDataId,
+      opponentFallbackName,
     });
   }
 
   // Ordering is mandatory, not style (spec §5, rule 6): it's what makes this function
   // correct regardless of how the API orders the response (the live call came back
   // ascending) or how `limit` truncates it.
-  survivors.sort((a, b) => Date.parse(b.date) - Date.parse(a.date));
+  candidates.sort((a, b) => Date.parse(b.date) - Date.parse(a.date));
 
-  const matches: TeamFormMatch[] = [];
-  let otherCompetitionMatch: TeamFormMatch | null = null;
+  const survivingCandidates: Candidate[] = [];
+  let otherCandidate: Candidate | null = null;
 
-  for (const match of survivors) {
-    if (match.competition.code === COMPETITION_CODE) {
-      if (matches.length < RECENT_FORM_SIZE) {
-        matches.push(match);
+  for (const candidate of candidates) {
+    if (candidate.competition.code === COMPETITION_CODE) {
+      if (survivingCandidates.length < RECENT_FORM_SIZE) {
+        survivingCandidates.push(candidate);
       }
-    } else if (otherCompetitionMatch === null) {
+    } else if (otherCandidate === null) {
       // The first non-BSA match encountered in the (already date-descending) list is the
       // most recent one — "a última partida", singular (discovery, item 10).
-      otherCompetitionMatch = match;
+      otherCandidate = candidate;
     }
   }
+
+  // Only now, with the partition and the RECENT_FORM_SIZE cut already applied, is the
+  // opponent resolved — one teamIdFromFootballData call per surviving match, never per
+  // fetched match.
+  async function resolveCandidate(candidate: Candidate): Promise<TeamFormMatch> {
+    const opponent = await teamIdFromFootballData(candidate.opponentFootballDataId, candidate.opponentFallbackName);
+    return {
+      id: candidate.id,
+      date: candidate.date,
+      opponent: opponent.id,
+      side: candidate.side,
+      score: candidate.score,
+      result: candidate.result,
+      competition: candidate.competition,
+    };
+  }
+
+  const matches = await Promise.all(survivingCandidates.map(resolveCandidate));
+  const otherCompetitionMatch = otherCandidate === null ? null : await resolveCandidate(otherCandidate);
 
   const record = matches.reduce(
     (acc, match) => {

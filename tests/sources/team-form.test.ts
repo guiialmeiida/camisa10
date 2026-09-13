@@ -251,6 +251,53 @@ describe("mapTeamForm — against the real body recorded live (task 05, §2)", (
     warn.mockRestore();
   });
 
+  it("resolves the opponent only for surviving matches — the ones the BSA cut and the other-competition rule discard never trigger the unknown-team warning (review achado 3)", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    // 6 finished BSA matches, most recent first once sorted, each against an opponent
+    // unknown to teams.json — only the newest RECENT_FORM_SIZE (5) survive the cut.
+    const bsaMatches = Array.from({ length: 6 }, (_, i) => ({
+      id: 100 + i,
+      utcDate: `2026-09-${String(10 - i).padStart(2, "0")}T00:30:00Z`,
+      status: "FINISHED",
+      competition: { code: "BSA", name: "Campeonato Brasileiro Série A" },
+      homeTeam: { id: 1769, name: "SE Palmeiras" },
+      awayTeam: { id: 900000 + i, name: `Unknown Club ${i}` },
+      score: { fullTime: { home: 1, away: 0 } },
+    }));
+
+    // 3 finished CLI matches — only the most recent becomes otherCompetitionMatch; the
+    // other two are discarded before opponent resolution ever runs for them.
+    const cliMatches = [
+      { id: 200, utcDate: "2026-09-09T00:30:00Z", offsetId: 0 },
+      { id: 201, utcDate: "2026-09-02T00:30:00Z", offsetId: 1 },
+      { id: 202, utcDate: "2026-08-26T00:30:00Z", offsetId: 2 },
+    ].map((m) => ({
+      id: m.id,
+      utcDate: m.utcDate,
+      status: "FINISHED",
+      competition: { code: "CLI", name: "Copa Libertadores" },
+      homeTeam: { id: 1769, name: "SE Palmeiras" },
+      awayTeam: { id: 910000 + m.offsetId, name: `Unknown Cup Club ${m.offsetId}` },
+      score: { fullTime: { home: 2, away: 1 } },
+    }));
+
+    const form = await mapTeamForm("palmeiras", 1769, { matches: [...bsaMatches, ...cliMatches] });
+
+    expect(form.matches).toHaveLength(RECENT_FORM_SIZE);
+    expect(form.matches.map((m) => m.id)).toEqual(["100", "101", "102", "103", "104"]);
+    expect(form.otherCompetitionMatch?.id).toBe("200");
+
+    // 5 surviving BSA matches + 1 surviving CLI match = 6 unknown-team warnings, never 9
+    // (6 BSA + 3 CLI) — the opponent for match 105 and for CLI matches 201/202 must never
+    // be resolved, because none of those three ever reach the response.
+    const unknownTeamWarnings = warn.mock.calls.filter((call) =>
+      String(call[0]).includes("unknown footballDataId"),
+    );
+    expect(unknownTeamWarnings).toHaveLength(6);
+    warn.mockRestore();
+  });
+
   it("no match from the competition among those fetched -> matches: [] and record zeroed, otherCompetitionMatch unaffected", async () => {
     const raw = {
       matches: [
