@@ -1,5 +1,7 @@
-import { formatMatchDateTime, teamName } from "../generation/match-format.ts";
+import { formatMatchDate, formatMatchDateTime, teamName } from "../generation/match-format.ts";
+import { CANDIDATE_POOL_FACTOR, TIME_DECAY_HALF_LIFE_DAYS, isDecayedResult } from "../retrieval/time-decay.ts";
 import type { Facts, Match, Team } from "../sources/index.ts";
+import type { TeamForm, TeamFormMatch } from "../sources/team-form.ts";
 import type { QdrantFilter } from "../vectorstore/qdrant.ts";
 import type { SearchResult } from "../vectorstore/types.ts";
 import type { Entity, FinalState, Plan } from "./state.ts";
@@ -7,7 +9,17 @@ import type { Entity, FinalState, Plan } from "./state.ts";
 export type TraceEntry =
   | { node: "entityExtraction"; model: string; ms: number; entity: Entity }
   | { node: "planner"; model: string; ms: number; plan: Plan }
-  | { node: "fetch_facts_api"; model: null; ms: number; facts: Facts | null; error?: string }
+  | {
+      node: "fetch_facts_api";
+      model: null;
+      ms: number;
+      facts: Facts | null;
+      /** null outside team_form. */
+      recentForm: TeamForm | null;
+      error?: string;
+      /** getTeamForm's own failure — independent from `error`, which is getFacts'. */
+      formError?: string;
+    }
   | {
       node: "search_vector_context";
       model: string;
@@ -60,6 +72,18 @@ function formatMatchSummary(match: Match, teams: Team[]): string {
   return `${homeName} ${match.score.home} x ${match.score.away} ${awayName}   ${match.status}${minuteSuffix}   ${date}`;
 }
 
+/**
+ * One line of a TeamFormMatch, home team first — `match.score` is already "as played"
+ * (spec §5), so which side gets `teamLabel` just depends on `match.side`.
+ */
+function formatTeamFormMatchLine(match: TeamFormMatch, teamLabel: string, teams: Team[]): string {
+  const opponentLabel = teamName(match.opponent, teams);
+  const homeLabel = match.side === "home" ? teamLabel : opponentLabel;
+  const awayLabel = match.side === "home" ? opponentLabel : teamLabel;
+  const date = formatMatchDate(match.date);
+  return `${date}  ${homeLabel} ${match.score.home} x ${match.score.away} ${awayLabel}   ${match.side}   ${match.result}`;
+}
+
 function truncate(text: string, maxLength: number): string {
   return text.length > maxLength ? `${text.slice(0, maxLength)}…` : text;
 }
@@ -74,18 +98,40 @@ function findPassageSource(trace: TraceEntry[], passageId: string): string {
 }
 
 /**
- * `lowConfidence` is one boolean for two different reasons (src/generation/writer.ts:
- * empty context, or missing facts) — say which one it actually was instead of a fixed
- * string that's wrong whenever facts failed but context was retrieved.
+ * `lowConfidence` is one boolean for several different reasons (src/generation/writer.ts:
+ * empty context, missing facts, or — team_form only — missing recent form) — say which
+ * one it actually was instead of a fixed string that's wrong whenever facts failed but
+ * context was retrieved.
  */
 function describeLowConfidence(state: FinalState): string {
   const noContext = state.context.length === 0;
   const noFacts = state.facts === null;
 
-  if (noContext && noFacts) return "no narrative context, no API facts";
-  if (noFacts) return "no API facts (narrative context only, unverifiable against real numbers)";
-  if (noContext) return "no narrative context, API facts only";
+  let base: string | null;
+  if (noContext && noFacts) base = "no narrative context, no API facts";
+  else if (noFacts) base = "no API facts (narrative context only, unverifiable against real numbers)";
+  else if (noContext) base = "no narrative context, API facts only";
+  else base = null;
+
+  const formReason = describeMissingFormReason(state);
+
+  if (base !== null && formReason !== null) return `${base}; ${formReason}`;
+  if (base !== null) return base;
+  if (formReason !== null) return formReason;
   return "low confidence";
+}
+
+/**
+ * The team_form-specific reason (discovery, item 7): the question was about a team's
+ * form and the form never arrived — either no team was identified at all, or getTeamForm
+ * itself failed. null outside team_form, or when the form did arrive.
+ */
+function describeMissingFormReason(state: FinalState): string | null {
+  if (state.plan.mode !== "team_form" || state.recentForm !== null) return null;
+  if (state.entity.team === null) {
+    return "no team identified in the question, so no recent form and no team filter";
+  }
+  return "no recent form for the team";
 }
 
 /**
@@ -150,6 +196,26 @@ export function formatTrace(state: FinalState): string {
             lines.push(`    │   ${formatMatchSummary(match, entry.facts.teams)}`);
           }
         }
+        if (entry.formError !== undefined) {
+          lines.push(`    │   RECENT FORM ERROR: ${entry.formError}`);
+        } else if (entry.recentForm !== null) {
+          const teams = entry.facts?.teams ?? [];
+          const teamLabel = teamName(entry.recentForm.team, teams);
+          const { wins, draws, losses } = entry.recentForm.record;
+          lines.push(
+            `    │   recent form (${teamLabel}), BSA only: ${wins}W ${draws}D ${losses}L in the last ${entry.recentForm.matches.length}`,
+          );
+          for (const match of entry.recentForm.matches) {
+            lines.push(`    │   ${formatTeamFormMatchLine(match, teamLabel, teams)}`);
+          }
+          if (entry.recentForm.otherCompetitionMatch !== null) {
+            lines.push(
+              `    │   outside BSA: ${formatTeamFormMatchLine(entry.recentForm.otherCompetitionMatch, teamLabel, teams)}   ${entry.recentForm.otherCompetitionMatch.competition.name}`,
+            );
+          } else {
+            lines.push("    │   outside BSA: none");
+          }
+        }
         lines.push("    │");
         break;
       }
@@ -169,15 +235,25 @@ export function formatTrace(state: FinalState): string {
         } else if (entry.results.length === 0) {
           lines.push("        no passages retrieved");
         } else {
-          lines.push(`        k=${entry.k} over ${entry.collectionSize} points in collection ${entry.collection}`);
+          // The pool/decay suffix is derived from the results, not a field on the trace
+          // entry: it only ever shows up when at least one result actually went through
+          // rankByTimeDecay (spec §9) — everywhere else this prints exactly as before.
+          const hasDecayedResults = entry.results.some(isDecayedResult);
+          const poolSuffix = hasDecayedResults
+            ? `   (pool of ${entry.k * CANDIDATE_POOL_FACTOR}, time decay: half-life ${TIME_DECAY_HALF_LIFE_DAYS}d)`
+            : "";
+          lines.push(`        k=${entry.k} over ${entry.collectionSize} points in collection ${entry.collection}${poolSuffix}`);
           entry.results.forEach((result, index) => {
             // chunkCount === 1 means the passage wasn't split — the whole fixture today,
             // and printing "chunk 1/1" there wouldn't teach anything. 1-based here because
             // it's text for a human; the underlying field stays 0-based.
             const chunkLabel =
               result.payload.chunkCount > 1 ? `  chunk ${result.payload.chunkIndex + 1}/${result.payload.chunkCount}` : "";
+            const decaySuffix = isDecayedResult(result)
+              ? `   (sim ${result.similarity.toFixed(3)} × decay ${result.timeDecay.toFixed(3)})`
+              : "";
             lines.push(
-              `        #${index + 1}  ${result.score.toFixed(3)}  ${result.payload.passageId}${chunkLabel}  ${result.payload.type}  "${truncate(result.payload.text, 45)}"`,
+              `        #${index + 1}  ${result.score.toFixed(3)}  ${result.payload.passageId}${chunkLabel}  ${result.payload.type}  "${truncate(result.payload.text, 45)}"${decaySuffix}`,
             );
           });
         }

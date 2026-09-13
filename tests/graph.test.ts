@@ -2,18 +2,22 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { StateWithPlan } from "../src/agent/state.ts";
 import type { TraceEntry } from "../src/agent/trace.ts";
 import type { Facts } from "../src/sources/index.ts";
+import type { TeamForm } from "../src/sources/team-form.ts";
 import type { PassagePayload } from "../src/vectorstore/types.ts";
 
 vi.mock("../src/sources/index.ts", () => ({ getFacts: vi.fn() }));
+vi.mock("../src/sources/team-form.ts", () => ({ getTeamForm: vi.fn() }));
 vi.mock("../src/retrieval/search-context.ts", () => ({ searchContext: vi.fn() }));
 vi.mock("../src/vectorstore/qdrant.ts", () => ({ countPoints: vi.fn() }));
 
 const { getFacts } = await import("../src/sources/index.ts");
+const { getTeamForm } = await import("../src/sources/team-form.ts");
 const { searchContext } = await import("../src/retrieval/search-context.ts");
 const { countPoints } = await import("../src/vectorstore/qdrant.ts");
 const { runFanOut } = await import("../src/agent/graph.ts");
 
 const mockGetFacts = vi.mocked(getFacts);
+const mockGetTeamForm = vi.mocked(getTeamForm);
 const mockSearchContext = vi.mocked(searchContext);
 const mockCountPoints = vi.mocked(countPoints);
 
@@ -80,7 +84,7 @@ function buildFactsWithMatch(date: Date): Facts {
   };
 }
 
-function samplePayload(passageId: string): PassagePayload {
+function samplePayload(passageId: string, publishedAt = "2026-09-06T08:00:00-03:00"): PassagePayload {
   return {
     passageId,
     contentHash: "0".repeat(40),
@@ -95,7 +99,17 @@ function samplePayload(passageId: string): PassagePayload {
     matchId: "m1",
     competition: "brasileirao-serie-a",
     matchweek: 12,
-    publishedAt: "2026-09-06T08:00:00-03:00",
+    publishedAt,
+  };
+}
+
+function buildTeamForm(): TeamForm {
+  return {
+    team: "palmeiras",
+    matches: [],
+    otherCompetitionMatch: null,
+    record: { wins: 0, draws: 0, losses: 0 },
+    source: "api",
   };
 }
 
@@ -105,6 +119,8 @@ describe("runFanOut — spec §6: Promise.allSettled never aborts the graph", ()
   beforeEach(() => {
     process.env = { ...process.env, ...fakeEnv };
     mockGetFacts.mockReset();
+    mockGetTeamForm.mockReset();
+    mockGetTeamForm.mockResolvedValue(buildTeamForm());
     mockSearchContext.mockReset();
     mockCountPoints.mockReset();
     mockCountPoints.mockResolvedValue(14);
@@ -123,7 +139,10 @@ describe("runFanOut — spec §6: Promise.allSettled never aborts the graph", ()
     const result = await runFanOut(buildStateWithPlan(), trace);
 
     expect(result.facts).toBeNull();
-    expect(result.context).toBe(contextResult);
+    // team_form now reranks the pool (spec §7), so the returned objects are no longer
+    // the same references mockSearchContext handed back — check content, not identity.
+    expect(result.context).toHaveLength(1);
+    expect(result.context[0]?.payload.passageId).toBe("p03");
 
     const factsEntry = trace.find((entry) => entry.node === "fetch_facts_api");
     const contextEntry = trace.find((entry) => entry.node === "search_vector_context");
@@ -169,7 +188,8 @@ describe("runFanOut — spec §6: Promise.allSettled never aborts the graph", ()
 
     const contextEntry = trace.find((entry) => entry.node === "search_vector_context");
     expect(contextEntry?.collection).toBe("camisa10-test");
-    expect(contextEntry?.filter).toBeNull();
+    // buildStateWithPlan() is team_form with a team — the filter is mandatory in this mode.
+    expect(contextEntry?.filter).toEqual({ must: [{ key: "teams", match: { value: "palmeiras" } }] });
     expect(contextEntry?.waitedForFactsMs).toBe(0);
   });
 });
@@ -180,6 +200,8 @@ describe("runFanOut — spec §5: the current_matchweek filter depends on facts,
   beforeEach(() => {
     process.env = { ...process.env, ...fakeEnv };
     mockGetFacts.mockReset();
+    mockGetTeamForm.mockReset();
+    mockGetTeamForm.mockResolvedValue(buildTeamForm());
     mockSearchContext.mockReset();
     mockCountPoints.mockReset();
     mockCountPoints.mockResolvedValue(14);
@@ -220,17 +242,35 @@ describe("runFanOut — spec §5: the current_matchweek filter depends on facts,
     });
   });
 
-  it("team_form: searchContext is called with no filter property at all", async () => {
+  it("team_form: searchContext is called with the team filter and a pool of k * CANDIDATE_POOL_FACTOR", async () => {
     mockGetFacts.mockResolvedValue(buildFactsWithMatch(pastMatchDate()));
     mockSearchContext.mockResolvedValue([]);
 
-    await runFanOut(buildStateWithPlan(), []);
+    const state = buildStateWithPlan();
+    await runFanOut(state, []);
 
+    expect(mockSearchContext).toHaveBeenCalledWith({
+      query: state.plan.searchQuery,
+      k: state.k * 4,
+      filter: { must: [{ key: "teams", match: { value: "palmeiras" } }] },
+    });
+  });
+
+  it("team_form without a team: searchContext is called with no filter property at all, and getTeamForm doesn't run", async () => {
+    mockGetFacts.mockResolvedValue(buildFactsWithMatch(pastMatchDate()));
+    mockSearchContext.mockResolvedValue([]);
+
+    const state = buildStateWithPlan();
+    state.entity = { ...state.entity, team: null };
+    await runFanOut(state, []);
+
+    expect(mockGetTeamForm).not.toHaveBeenCalled();
     expect(mockSearchContext).toHaveBeenCalledWith(
       expect.not.objectContaining({ filter: expect.anything() }),
     );
     const [callArgs] = mockSearchContext.mock.calls[0] ?? [];
     expect(callArgs && "filter" in callArgs).toBe(false);
+    expect(callArgs?.k).toBe(state.k);
   });
 
   it("team_form: does not wait for fetch_facts_api — searchContext already ran before it resolves", () => {
@@ -300,5 +340,120 @@ describe("runFanOut — spec §5: the current_matchweek filter depends on facts,
     );
     const contextEntry = trace.find((entry) => entry.node === "search_vector_context");
     expect(contextEntry?.filter).toBeNull();
+  });
+});
+
+describe("runFanOut — spec §8: getTeamForm joins the facts branch, independently of getFacts", () => {
+  const originalEnv = { ...process.env };
+
+  beforeEach(() => {
+    process.env = { ...process.env, ...fakeEnv };
+    mockGetFacts.mockReset();
+    mockGetTeamForm.mockReset();
+    mockSearchContext.mockReset();
+    mockCountPoints.mockReset();
+    mockCountPoints.mockResolvedValue(14);
+  });
+
+  afterEach(() => {
+    process.env = { ...originalEnv };
+  });
+
+  it("team_form with a team: getFacts and getTeamForm both run, context is <= k and ordered by score descending, and recentForm is what getTeamForm returned", async () => {
+    const facts = buildFactsWithMatch(pastMatchDate());
+    const form = { ...buildTeamForm(), record: { wins: 2, draws: 1, losses: 2 } };
+    mockGetFacts.mockResolvedValue(facts);
+    mockGetTeamForm.mockResolvedValue(form);
+    // Three candidates of varying freshness — rankByTimeDecay must reorder and cut to k.
+    const pool = [
+      { id: 1, score: 0.5, payload: samplePayload("stale", "2026-01-01T00:00:00-03:00") },
+      { id: 2, score: 0.6, payload: samplePayload("fresh", new Date().toISOString()) },
+      { id: 3, score: 0.4, payload: samplePayload("mid", "2026-06-01T00:00:00-03:00") },
+    ];
+    mockSearchContext.mockResolvedValue(pool);
+
+    const state = { ...buildStateWithPlan(), k: 2 };
+    const trace: TraceEntry[] = [];
+    const result = await runFanOut(state, trace);
+
+    expect(mockGetFacts).toHaveBeenCalled();
+    expect(mockGetTeamForm).toHaveBeenCalledWith("palmeiras");
+    expect(mockSearchContext).toHaveBeenCalledWith(
+      expect.objectContaining({ k: state.k * 4, filter: { must: [{ key: "teams", match: { value: "palmeiras" } }] } }),
+    );
+    expect(result.context.length).toBeLessThanOrEqual(state.k);
+    const scores = result.context.map((r) => r.score);
+    expect(scores).toEqual([...scores].sort((a, b) => b - a));
+    expect(result.recentForm).toBe(form);
+  });
+
+  it("team_form without a team: getTeamForm doesn't run and recentForm is null", async () => {
+    mockGetFacts.mockResolvedValue(buildFactsWithMatch(pastMatchDate()));
+    mockSearchContext.mockResolvedValue([]);
+
+    const state = buildStateWithPlan();
+    state.entity = { ...state.entity, team: null };
+
+    const result = await runFanOut(state, []);
+
+    expect(mockGetTeamForm).not.toHaveBeenCalled();
+    expect(result.recentForm).toBeNull();
+  });
+
+  it("current_matchweek: getTeamForm doesn't run and recentForm is null", async () => {
+    mockGetFacts.mockResolvedValue(buildFactsWithMatch(pastMatchDate()));
+    mockSearchContext.mockResolvedValue([]);
+
+    const result = await runFanOut(buildCurrentMatchweekStateWithPlan(), []);
+
+    expect(mockGetTeamForm).not.toHaveBeenCalled();
+    expect(result.recentForm).toBeNull();
+  });
+
+  it("getTeamForm rejecting doesn't cost facts: recentForm is null with a formError, facts is preserved", async () => {
+    const facts = buildFactsWithMatch(pastMatchDate());
+    mockGetFacts.mockResolvedValue(facts);
+    mockGetTeamForm.mockRejectedValue(new Error("football-data.org rate limit reached"));
+    mockSearchContext.mockResolvedValue([]);
+
+    const trace: TraceEntry[] = [];
+    const result = await runFanOut(buildStateWithPlan(), trace);
+
+    expect(result.facts).toBe(facts);
+    expect(result.recentForm).toBeNull();
+
+    const factsEntry = trace.find((entry) => entry.node === "fetch_facts_api");
+    expect(factsEntry?.formError).toContain("rate limit");
+    expect(factsEntry?.error).toBeUndefined();
+  });
+
+  it("getFacts rejecting doesn't cost recentForm: facts is null with an error, recentForm is preserved", async () => {
+    const form = buildTeamForm();
+    mockGetFacts.mockRejectedValue(new Error("API futebol 503"));
+    mockGetTeamForm.mockResolvedValue(form);
+    mockSearchContext.mockResolvedValue([]);
+
+    const trace: TraceEntry[] = [];
+    const result = await runFanOut(buildStateWithPlan(), trace);
+
+    expect(result.facts).toBeNull();
+    expect(result.recentForm).toBe(form);
+
+    const factsEntry = trace.find((entry) => entry.node === "fetch_facts_api");
+    expect(factsEntry?.error).toContain("API futebol 503");
+    expect(factsEntry?.formError).toBeUndefined();
+  });
+
+  it("the fetch_facts_api trace entry always carries recentForm, in every mode", async () => {
+    mockGetFacts.mockResolvedValue(buildFactsWithMatch(pastMatchDate()));
+    mockGetTeamForm.mockResolvedValue(buildTeamForm());
+    mockSearchContext.mockResolvedValue([]);
+
+    const trace: TraceEntry[] = [];
+    await runFanOut(buildCurrentMatchweekStateWithPlan(), trace);
+
+    const factsEntry = trace.find((entry) => entry.node === "fetch_facts_api");
+    expect(factsEntry).toHaveProperty("recentForm");
+    expect(factsEntry?.recentForm).toBeNull();
   });
 });
