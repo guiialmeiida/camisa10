@@ -7,7 +7,7 @@ Pode ser feita em paralelo com a tarefa 04.
 - [x] Discovery  ← grilling de 2026-09-12, 10 decisões registradas abaixo
 - [x] Refinamento técnico  ← spec fechada em 2026-09-12; emendada no mesmo dia pelo item 10 do
       discovery (verificação ao vivo do endpoint), sem pendência para o usuário
-- [ ] Implementação
+- [x] Implementação  ← 2026-09-12, `feat/05-team-form-query`
 - [ ] Revisão
 - [ ] Testes
 
@@ -1126,10 +1126,123 @@ E o caso degenerado, que também tem de rodar:
   pergunta.
 
 ## Implementação
-_A preencher._
+
+Implementado em 2026-09-12, contra a spec fechada acima (incluindo a emenda do item 10), na branch
+`feat/05-team-form-query`, a partir de `main` já com a tarefa 04 mergeada.
+
+### O que foi feito
+
+- **`src/sources/football-data.ts`**: `COMPETITION_CODE` e `STATUS_MAP` passaram a `export`;
+  `fdTeamMatchSchema`/`footballDataTeamMatchesSchema` (schema novo, tolerante, `competition`
+  nullish) e `fetchTeamMatches(footballDataId, limit)` (`GET /v4/teams/{id}/matches?status=FINISHED&limit=N`).
+- **`src/sources/teams.ts`**: `footballDataIdFor(teamId)` — direção inversa de
+  `teamIdFromFootballData`.
+- **`src/sources/team-form.ts`** (novo): `getTeamForm`/`mapTeamForm`, `TeamForm`/`TeamFormMatch`,
+  `RECENT_FORM_SIZE = 5`, `FORM_FETCH_LIMIT = 20`. Faz a partição BSA/`otherCompetitionMatch`
+  exatamente como a seção 5 descreve.
+- **`src/retrieval/filters.ts`**: `buildTeamFormFilter(team)` acrescentada ao arquivo que a tarefa
+  04 já criou.
+- **`src/retrieval/time-decay.ts`** (novo): `timeDecayWeight`, `rankByTimeDecay`, `isDecayedResult`,
+  `TIME_DECAY_HALF_LIFE_DAYS = 14`, `CANDIDATE_POOL_FACTOR = 4`.
+- **`src/agent/state.ts`**: `StateWithData.recentForm: TeamForm | null`.
+- **`src/agent/graph.ts`**: `runFactsCall`/`FactsOutcome` (getFacts + getTeamForm em paralelo,
+  `Promise.allSettled` interno, nunca rejeita); `runContextCall` ganhou o ramo `team_form` (filtro
+  obrigatório + pool `k*4` + `rankByTimeDecay`); `runFanOut` concilia a nova forma da ponta de
+  fatos com o fan-out externo que a tarefa 04 introduziu — exatamente a reconciliação que a seção 1
+  da spec previu (`outcome.facts` no lugar de `settled.value` dentro de `runContextCall`).
+- **`src/agent/trace.ts`**: `fetch_facts_api` ganhou `recentForm`/`formError` (impressão do
+  retrospecto, da linha `outside BSA:` e de `RECENT FORM ERROR:`); `search_vector_context` ganhou o
+  sufixo `(pool of N, time decay: half-life 14d)` e `(sim × decay)` por resultado, via
+  `isDecayedResult`; `describeLowConfidence` ganhou o motivo de `team_form` sem quebrar as três
+  frases existentes.
+- **`src/generation/writer.ts`**: seção `<recent_form source="api">` (`buildRecentFormSection`,
+  exportada), instrução condicional do modo (abrir pelo retrospecto, nunca somar
+  `otherCompetitionMatch` ao V-E-D), regra dos números reescrita para falar de "seções com
+  `source="api"`", e `computeLowConfidence` com a terceira condição.
+- **Testes**: `tests/retrieval/time-decay.test.ts`, `tests/sources/team-form.test.ts` (novos);
+  `tests/retrieval/filters.test.ts`, `tests/graph.test.ts`, `tests/trace.test.ts`,
+  `tests/writer.test.ts`, `tests/integration/live-sources.test.ts` (alterados).
+- **Docs**: `docs/architecture.md` (glossário + estado real da fórmula de scoring — decaimento
+  implementado só em `team_form`, `peso_metadado` continua pendência explícita),
+  `docs/learning/06-time-decay.md` (novo) e `docs/learning/README.md` (índice).
+- **`tests/fixtures/http/football-data-team-matches.json`** (novo): corpo cru gravado na
+  verificação ao vivo, usado pelo teste central de `mapTeamForm` (seção seguinte).
+
+### A verificação ao vivo do endpoint — o que voltou de fato
+
+Chamada real em 2026-09-12: `GET /v4/teams/1769/matches?status=FINISHED&limit=20` (Palmeiras),
+token real de `.env`, corpo gravado integralmente em
+`tests/fixtures/http/football-data-team-matches.json` (a mesma chamada que a seção 2 da spec já
+tinha rodado com `limit=5` para fechar o schema; esta é a repetição com `FORM_FETCH_LIMIT=20`, para
+gerar o fixture que os testes consomem).
+
+- **200 OK**, `matches.length === 20` — o teto de `limit` não impôs nenhum valor menor que 20; a
+  seção 5 da spec previa registrar aqui se isso acontecesse, e não aconteceu.
+- **Proporção BSA/não-BSA na janela de 20**: `resultSet.competitions` confirmou `"CLI,BSA"`; **13
+  jogos BSA e 7 CLI** (Copa Libertadores) — 35% fora do campeonato, dentro da faixa que a seção 5
+  da spec previu como "pior caso realista" para um clube grande disputando continental junto do
+  Brasileirão.
+- **Ordem**: os 20 jogos vieram em ordem **crescente** de data (mais antigo primeiro) — confirma de
+  novo o achado da seção 2 (a chamada com `limit=5` já tinha mostrado isso), e é exatamente por
+  isso que `mapTeamForm` ordena no cliente em vez de confiar na ordem da API.
+- **Um `matchday: null`** apareceu entre os 20 (jogo de mata-mata da Libertadores, sem rodada de
+  fase de grupos) — confirma que `matchday` de fato pode ser `null` neste endpoint, como a seção 4
+  previa; o campo continua não sendo lido.
+- Com `team = "palmeiras"`, o resultado de `mapTeamForm` sobre este corpo real: **5 jogos do BSA**
+  (1V 3E 1L) e **`otherCompetitionMatch`** = a Copa Libertadores mais recente (Palmeiras 1x0 LDU de
+  Quito, fora de ordem cronológica em relação aos jogos do BSA mais antigos que entraram no
+  retrospecto — exatamente o caso que a seção 14 pede para travar: um jogo de outra competição mais
+  recente que os 5 do campeonato não entra em `matches` nem empurra o corte).
+- O adversário "LDU de Quito" não está em `teams.json` (só clubes brasileiros) → resolvido para o
+  slug sintético `ldu-de-quito` por `teamIdFromFootballData`, com `console.warn` — o caminho de
+  degradação já usado por `mapMatches` funcionou sem alteração nenhuma.
+
+Nenhuma divergência do schema da seção 4 — `footballDataTeamMatchesSchema` validou o corpo real sem
+ajuste.
+
+### Desvio da spec — e por quê
+
+**Um único desvio, mecânico, não de comportamento**: a seção 5 declara
+`mapTeamForm(teamId, footballDataId, raw): TeamForm` (síncrona). A regra 4 da mesma seção manda
+resolver o adversário com `teamIdFromFootballData`, que é **assíncrona** (lê `teams.json` via
+`loadIndex()`/`readFile`) — a mesma função que `mapMatches` (o análogo desta função em
+`football-data.ts`) já usa, e por isso `mapMatches` também é `async`. Uma função verdadeiramente
+síncrona não pode `await` uma chamada assíncrona no meio do laço que resolve cada jogo.
+
+Implementado como `export async function mapTeamForm(...): Promise<TeamForm>`, espelhando
+`mapMatches`. O comportamento descrito pela spec (validação, descarte de jogos, partição
+BSA/`otherCompetitionMatch`, `record`) é exatamente o mesmo — só o tipo de retorno vira `Promise`.
+`getTeamForm` já esperava chamar `mapTeamForm` como parte do seu próprio corpo `async`, então a
+mudança não se propaga para nenhum chamador fora deste arquivo. Nenhuma outra parte da spec (schema
+do endpoint, partição, regra de ouro, testes) foi reinterpretada.
+
+### Visto e não corrigido (fora de escopo desta tarefa)
+
+- O exemplo literal da seção 9 (trace) e da seção 10 (prompt) mostra o oponente de
+  `otherCompetitionMatch` como `"CA River Plate"` (nome bonito). Na prática, `teamName(id, teams)`
+  só resolve nomes que estão em `Facts.teams` — que vem de `listTeams()` (só clubes do
+  Brasileirão) mais os sintéticos daquela chamada a `getFacts`. Um clube estrangeiro de copa
+  continental nunca vai estar ali, então o comportamento real e correto (documentado explicitamente
+  na própria seção 9: "que já degrada para o slug quando não acha") é imprimir o slug sintético
+  (`ldu-de-quito`, `ca-river-plate`) em vez do nome bonito, quando o clube não é conhecido. Os testes
+  desta implementação cobrem os dois casos (nome resolvido quando o time está em `teams.json`/lista
+  de teste; slug quando não está) e não travam a expectativa "sempre nome bonito", que a spec não
+  garante de fato dar certo neste caso. Não é uma correção de comportamento — é registrar que o
+  exemplo ilustrativo da spec é otimista nesse detalhe específico.
 
 ## Revisão
 _A preencher._
 
 ## Testes
-_A preencher._
+
+- `npm test` (`tsc --noEmit && vitest run`, sem rede/Docker): **246/246 passando**, 22 arquivos de
+  teste.
+- `npx vitest run --config vitest.integration.config.ts tests/integration/live-sources.test.ts`
+  (rede real, football-data.org/RSS, sem `LLM_CASSETTE`): **3/3 passando**, incluindo o caso novo de
+  `getTeamForm("palmeiras")` — no máximo 5 jogos, todos BSA, ordem decrescente, `record` batendo com
+  `matches.length`, e (quando presente) `otherCompetitionMatch` fora do BSA e sem overlap com
+  `matches`.
+- `npm run test:integration` completo não foi rodado (gastaria a cota de Voyage/Anthropic de
+  `golden-rule.test.ts`/`recall.test.ts`/`ingestion-incremental.test.ts`, que esta tarefa não toca e
+  cuja flakiness pré-existente já está documentada na tarefa 04); o teste de integração relevante
+  para esta tarefa (`live-sources.test.ts`) foi isolado e rodou verde, como acima.
