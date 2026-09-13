@@ -16,7 +16,8 @@
     "ask": "node src/cli/ask.ts",
     "index": "node src/cli/index-passages.ts",
     "sources": "node src/cli/sources.ts",
-    "eval:chunking": "node tests/eval/chunking-report.ts"
+    "eval:chunking": "node tests/eval/chunking-report.ts",
+    "demo:loops": "node tests/eval/loops-demo.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.124.0",
