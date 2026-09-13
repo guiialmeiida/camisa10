@@ -10,7 +10,7 @@ de ouro vale por convenção e pelo contrato das ferramentas, mas nada a verific
 - [x] Discovery  ← contexto de 2026-09-08; as 4 perguntas em aberto fecharam no grilling de
       2026-09-13, 6 decisões registradas abaixo
 - [x] Refinamento técnico  ← spec fechada em 2026-09-13, sem pendência para o usuário
-- [ ] Implementação
+- [x] Implementação  ← concluída em 2026-09-13, em duas rodadas (ver seção abaixo)
 - [ ] Revisão
 - [ ] Testes
 
@@ -1145,7 +1145,141 @@ de ver o loop 2 inteiro rodando.
 - **`peso_metadado`** da fórmula de scoring continua pendência aberta, como a tarefa 05 registrou.
 
 ## Implementação
-_A preencher._
+
+Implementada em 2026-09-13, contra a spec fechada acima, na branch `feat/06-feedback-loops`, a
+partir de `main` já com as tarefas 00-05 mergeadas. Uma primeira rodada (`implementador` anterior)
+caiu por rate limit de sessão a meio caminho, com trabalho real já commitado/não commitado; esta
+rodada revisou esse trabalho contra a spec inteira e completou o que faltava.
+
+### O que a primeira rodada já tinha feito
+
+- **`src/agent/nodes/grade.ts`** (novo): `gradePassages`, `shouldRewriteQuery`,
+  `summarizeRejections`, `GRADER_APPROVAL_THRESHOLD = 0.4`, `MAX_QUERY_REWRITES = 2`. Uma chamada
+  de `haiku-4-5` por trecho, `Promise.all` sobre `gradeOne` (que já captura toda falha
+  internamente e nunca rejeita — comportamento idêntico ao `Promise.allSettled` que a spec
+  descreve, só sem a etapa extra de desembrulhar `PromiseSettledResult`).
+- **`src/agent/nodes/critic.ts`** (novo): `allowedNumbers`, `findOrphanNumbers`,
+  `redactOrphanSentences`, `critique`, `MAX_ANSWER_REWRITES = 1`, `REDACTED_ANSWER_NOTICE`,
+  `REDACTION_NOTICE`. A checagem determinística roda sempre primeiro; o `opus-5 medium` só é
+  chamado quando ela já sinalizou algo.
+- **`src/config/models.ts`**: `grader` e `critic` preenchidos, exatamente como a tabela da seção 3.
+- **`src/agent/nodes/plan.ts`**: segundo parâmetro opcional `QueryRewriteContext` (`previousQuery`,
+  `rejected`, `attempt`); a chamada original (`plan(state)`) não muda de forma.
+- **`src/agent/graph.ts`**: `runSearch` extraído de `runContextCall` (a retentativa refaz só a
+  busca, nunca os fatos); `runGradingLoopWithBestAttempt`/`runGradingLoop` (o loop 1 completo, com
+  a regra "melhor tentativa vence, empate para a mais antiga"); `critique` plugado em `answer()`
+  depois do `write`.
+- **`src/generation/writer.ts`**: instrução nova proibindo o redator de derivar número
+  (somas/médias/sequências); `buildFactsSection` passou a `export`.
+- **`src/agent/trace.ts`**: variantes `grader`, `queryRewrite` e `critic` na união de `TraceEntry`;
+  `search_vector_context` ganhou `attempt`/`query`; `writer` ganhou `contextFromAttempt`;
+  impressão dos três nós novos; `describeCriticReason` composto em `describeLowConfidence`.
+- **Testes**: `tests/agent/grade.test.ts`, `tests/agent/critic.test.ts` (novos, cobrindo os casos
+  da seção 15 quase integralmente); `tests/graph.test.ts`, `tests/trace.test.ts`,
+  `tests/writer.test.ts`, `tests/integration/golden-rule.test.ts` (alterados — este último já
+  promovido para importar `allowedNumbers`/`findOrphanNumbers` de produção, em vez da cópia local).
+- `npm test` já passava 303/303 (typecheck incluso) quando esta rodada começou.
+
+Essa parte foi conferida linha a linha contra a spec (não só contra os testes) nesta rodada — sem
+achado de divergência de comportamento. Uma única diferença mecânica, sem efeito observável: a spec
+descreve `Promise.allSettled` para as N chamadas do grader (seção 4); a implementação usa
+`Promise.all`, o que é equivalente porque `gradeOne` já captura toda exceção internamente e nunca
+rejeita — mantido como está, por ser mais direto sem `PromiseSettledResult` para desembrulhar.
+
+### O que esta rodada completou
+
+- **`tests/eval/loops-demo.ts`** (novo) + `"demo:loops"` em `package.json`: a demonstração
+  executável do loop 2 (seção 16), no mesmo espírito de `tests/eval/chunking-report.ts`. Constrói
+  dois cenários com fatos reais (`getFacts({})`) e resposta envenenada à mão — um número derivado
+  ("4 vitórias seguidas") ao lado de um placar real, e uma estatística inventada sem lastro nenhum —
+  e roda `critique()` de verdade em cada um, imprimindo o conjunto permitido, os números órfãos, a
+  resposta antes/depois e, quando acontece, a frase removida e o aviso de baixa confiança. Rodado
+  manualmente (`npx tsx tests/eval/loops-demo.ts`) para confirmar que executa e imprime o esperado.
+  **Nota sobre o segundo cenário**: forçar de forma 100% determinística que o `opus-5` real *não*
+  consiga limpar a resposta (o teto do loop 2) não é algo que uma chamada de rede não controlada
+  possa garantir — o modelo pode sempre optar por remover a alegação inteira em vez de deixar um
+  número novo. O script documenta essa realidade no comentário (mesmo espírito da seção 16 sobre o
+  `npm run ask` do loop 1, cujo resultado "depende do julgamento do grader") e imprime o resultado
+  real de cada execução, o que quer que seja, em vez de fingir uma garantia que uma chamada de LLM
+  de verdade não pode dar.
+- **`docs/learning/07-feedback-loops.md`** (novo): Corrective RAG, por que o grader julga um trecho
+  por vez em paralelo, por que proporção e não contagem, por que o self-check é verificação
+  determinística e não "LLM as a judge", o que um teto compra num loop de correção, e o bloco
+  "Por que não X?" (crítico decidir se há erro; graduar o pool inteiro; regenerar do zero;
+  autoavaliação na mesma chamada; framework de agente; persistir feedback humano).
+- **`docs/learning/README.md`**: linha nova apontando para o doc acima.
+- **`docs/architecture.md`**: diagrama mermaid emendado (o crítico agora aparece como checagem
+  determinística seguida do nó que refaz a resposta, com o nó de remoção determinística no teto,
+  em vez do antigo `CR -->|numero sem lastro na API| RED`); glossário com as 7 linhas novas
+  (`queryRewrite`, `answerRewrite`, `orphanNumber`, `redaction`, `approved`/`rejected`,
+  `approvalThreshold`, `attempt`) e a nota "dois termos, não um"; a prosa de "Os dois loops de
+  feedback" ganhou a frase sobre o self-check começar determinístico. A seção "## Status" não foi
+  tocada — não é sobre os loops, e a spec não pediu.
+- **`tests/integration/feedback-loops.test.ts`** (novo — não listado na tabela "Arquivos a criar" da
+  seção 14, mas descrito por extenso na seção 15/"Integração" como arquivo novo; tratado como
+  omissão da lista, não como pendência aberta, e implementado). Monta um `FinalState` à mão com os
+  fatos reais do fixture (`tests/fixtures/fixture-source.ts`) e uma resposta envenenada
+  ("o Palmeiras venceu por 2 x 0" quando o fixture diz 1 x 3), roda `critique()` de verdade e
+  verifica que a checagem determinística sinalizou o `2`, que o modelo reescreveu, e que nenhum
+  número órfão sobrevive na resposta final — independente de a limpeza ter vindo da reescrita do
+  modelo ou da remoção determinística no teto. Gravado (`LLM_CASSETTE=record`) e reproduzido
+  (`LLM_CASSETTE=replay`) com sucesso.
+
+### Resultado dos testes
+
+- `npm test` (typecheck + vitest, sem rede): **303/303**, verde, nesta rodada e ao final dela.
+- `tests/integration/feedback-loops.test.ts` (novo): gravado e reproduzido com sucesso
+  (`LLM_CASSETTE=record` e depois `=replay`), 1/1.
+- `tests/integration/golden-rule.test.ts`: **não fechou verde nas 3 rodadas dentro desta sessão**,
+  por um motivo de infraestrutura, não de comportamento — ver "Obstáculo encontrado" abaixo. Uma
+  execução real isolada (1 rodada em vez de 3, alteração temporária revertida antes do commit)
+  passou integralmente: placar certo presente, placar armadilha ausente, nenhum número órfão.
+- `tests/integration/recall.test.ts`, `ingestion-incremental.test.ts`, `live-sources.test.ts`: não
+  executados nesta rodada (nenhum toca em `answer()`/`critique()`/`grade.ts`, e esta tarefa não
+  altera retrieval — rodá-los consumiria mais da mesma cota de Voyage já escassa sem checar nada
+  que esta tarefa mudou).
+
+### Obstáculo encontrado: cota do Voyage free tier
+
+A conta usada neste projeto está no free tier do Voyage (3 requisições/min, sem cartão cadastrado).
+Antes desta tarefa, `golden-rule.test.ts` fazia **1** chamada de embedding por rodada (3 no total,
+espaçadas por um `sleep` de 20s entre rodadas quando `LLM_CASSETTE` não está definido). Com o loop 1,
+uma única chamada a `answer()` pode fazer até **3** chamadas de embedding (busca inicial + até 2
+reescritas) — o pior caso que a própria spec já previa e aceitava (seção 6, "Custo no pior caso").
+Isso approxima ou ultrapassa o teto de 3 RPM **dentro de uma única rodada**, antes mesmo do `sleep`
+entre rodadas ajudar. Em várias tentativas de gravar o cassete de `golden-rule.test.ts` (necessário
+porque o prompt do redator mudou — nova instrução contra derivar número — e os nós `grader`/`critic`
+são chamadas novas, nunca gravadas antes), a própria primeira busca de várias rodadas retornou 429
+do Voyage, mesmo depois de esperas de mais de 2 minutos entre tentativas.
+
+Isolando a variável (rodando com `run <= 1` em vez de `run <= 3`, alteração só para diagnóstico,
+revertida antes de qualquer commit), uma execução real completa — sem cassete, API de verdade —
+**passou integralmente**: o placar certo (1 x 3) apareceu, o placar armadilha (2 x 0, em toda
+grafia) não apareceu, e `findOrphanNumbers` voltou vazio. Isso confirma que o mecanismo (grading +
+crítico) preserva a regra de ouro; o que não foi possível nesta sessão foi consumir cota de Voyage
+suficiente para fechar as 3 rodadas em sequência sem 429, nem regravar um cassete completo para
+`golden-rule.test.ts` (o cassete ganhou entradas novas reais de `grader`/`critic`/`writer` ao longo
+das tentativas, mas não uma passagem íntegra de ponta a ponta gravável em `LLM_CASSETTE=replay`).
+**Isto fica registrado como pendência de infraestrutura para quem revisar**: rodar
+`LLM_CASSETTE=record npm run test:integration -- tests/integration/golden-rule.test.ts` de novo
+quando a cota do Voyage estiver livre (ou com um método de pagamento cadastrado, que já eleva o
+limite), de preferência isolado (não em sequência com outras suites que também usam Voyage).
+
+### Desvios da spec
+
+Nenhum desvio de comportamento. As únicas duas notas registradas acima (`Promise.all` em vez de
+`Promise.allSettled` no grader, comportamentalmente idêntico; e `tests/integration/feedback-loops.test.ts`
+como arquivo novo não listado na tabela da seção 14, mas exigido pela prosa da seção 15) são
+mecânicas ou de lista, não de comportamento ou contrato.
+
+### Visto e não corrigido (fora de escopo desta tarefa)
+
+- `README.md` não ganhou uma linha para `npm run demo:loops` (o padrão que `eval:chunking` segue
+  ali). A seção 14 da spec ("Arquivos a criar ou alterar") não lista `README.md`, e o script já é
+  descoberto por quem lê `package.json` — não tocado, para não ampliar o escopo de uma lista que a
+  spec já fechou.
+- `peso_metadado` continua pendência explícita (mencionada de novo na seção 17 da spec) — não é
+  desta tarefa.
 
 ## Revisão
 _A preencher._

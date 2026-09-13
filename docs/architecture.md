@@ -23,9 +23,10 @@ flowchart TD
   G -->|reprovou| RW[reescreve a query<br/>max. 2x] --> VEC
   G -->|aprovou| RED[redator<br/>opus-5 high]
   API --> RED
-  RED --> CR{critico<br/>opus-5 medium}
-  CR -->|numero sem lastro na API| RED
-  CR -->|ok, ou teto atingido| OUT[resposta com citacao<br/>+ traco do agente]
+  RED --> CHK{numeros sem lastro?<br/>checagem deterministica}
+  CHK -->|sim, 1a vez| CR[refaz a resposta<br/>opus-5 medium] --> CHK
+  CHK -->|sim, no teto| RDC[remove a frase<br/>deterministico] --> OUT
+  CHK -->|nao| OUT[resposta com citacao<br/>+ traco do agente]
 ```
 
 O paralelismo real está em dois pontos: o fan-out entre a API estruturada e a busca vetorial, e o
@@ -55,7 +56,10 @@ a etapa é do pipeline de ingestão, não do grafo do agente.
 - **Grading de documentos** (*Corrective RAG*): antes de gerar, o grader reprova trechos
   irrelevantes; se sobrar pouco, a query é reescrita e a busca refeita. **Teto: 2 reescritas.**
 - **Self-check da resposta**: depois de gerar, o crítico confere cada número contra os fatos
-  vindos da API. **Teto: 1 refação.**
+  vindos da API. **A checagem em si é determinística** (comparação de conjuntos, não julgamento
+  de modelo); o `opus-5 medium` só entra depois, para decidir *como* consertar o que já foi
+  sinalizado — e no caminho feliz, sem número sem lastro, ele nunca é chamado. **Teto: 1 refação**,
+  e no teto a frase com o número sem lastro é removida por código, não por mais uma chamada.
 
 **No teto, o sistema responde — nunca falha.** A resposta sai marcada como baixa confiança,
 dizendo o que não foi encontrado. Um RAG que diz "não achei contexto sobre X, os dados abaixo
@@ -114,6 +118,15 @@ Para os termos de domínio não se retraduzirem a cada arquivo, a tradução é 
 | meia-vida | `halfLife` | | retrospecto (V-E-D) | `record` |
 | pool de candidatos | `candidate pool` | | mando de campo (casa/fora) | `side` |
 | partida de outra competição | `otherCompetitionMatch` | | código da competição na fonte | `competitionCode` |
+| reescrita da query (loop 1) | `queryRewrite` | | refação da resposta (loop 2) | `answerRewrite` |
+| número órfão (sem lastro na API) | `orphanNumber` | | remoção de frase sem lastro | `redaction` |
+| trecho aprovado / reprovado | `approved` / `rejected` | | limiar de aprovação | `approvalThreshold` |
+| tentativa (do loop) | `attempt` | | | |
+
+**Dois termos, não um**: "reescrita" e "refação" nomeiam coisas diferentes — uma reescreve a
+*entrada* (a query, loop 1) e a outra a *saída* (a resposta, loop 2) —, e o código precisa das
+duas sem ambiguidade: `queryRewrite` é nó do traço, `answerRewrite` é o que o crítico faz por
+dentro.
 
 Os nós do agente mantêm os nomes já usados neste documento: `planner`, `grader`, `writer`
 (redator), `critic` (crítico), `entityExtraction` (extração de entidade).
