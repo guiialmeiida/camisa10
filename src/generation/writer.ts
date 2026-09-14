@@ -26,6 +26,7 @@ export function buildPrompt(state: StateWithData): Prompt {
       : []),
     'Só os números que aparecem nas seções com source="api" podem entrar na resposta.',
     "Nunca escreva, na resposta, nenhum número (placar, gols, data) que venha do context — nem mesmo para apontar que ele diverge dos facts. Se um trecho do context contradisser os facts, mencione que existe essa divergência sem repetir o número errado (ex.: \"uma das fontes traz um placar diferente do oficial\"), e cite a fonte só se necessário.",
+    "Não calcule nem derive números novos (somas, médias, totais, sequências do tipo \"4 jogos sem vencer\"): só escreva números que apareçam literalmente nas seções com source=\"api\".",
     "Toda afirmação que vier do context deve citar a fonte no formato [passageId].",
     "Se não houver context relevante, diga isso explicitamente e responda só com os facts.",
     ...(state.plan.mode === "current_matchweek"
@@ -56,7 +57,8 @@ export function buildPrompt(state: StateWithData): Prompt {
   return { system, user };
 }
 
-function buildFactsSection(facts: StateWithData["facts"]): string {
+/** Exported separately so the critic (task 06) reuses the exact rendering the writer saw. */
+export function buildFactsSection(facts: StateWithData["facts"]): string {
   if (!facts) {
     return '<facts source="api">\n(a chamada à API de fatos falhou — nenhum número disponível.)\n</facts>';
   }

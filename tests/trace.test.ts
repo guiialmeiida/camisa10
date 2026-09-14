@@ -143,6 +143,8 @@ describe("formatTrace", () => {
         collectionSize: 14,
         filter: null,
         waitedForFactsMs: 0,
+        attempt: 1,
+        query: "sequência recente do Palmeiras",
         results: [
           { id: 3, score: 0.612, payload: samplePayload("p03") },
           { id: 14, score: 0.571, payload: samplePayload("p14") },
@@ -157,6 +159,7 @@ describe("formatTrace", () => {
         ms: 4080,
         cited: ["p03", "p06"],
         retrievedNotCited: ["p14", "p07", "p02"],
+        contextFromAttempt: 1,
       },
     ];
 
@@ -185,6 +188,8 @@ describe("formatTrace", () => {
         collectionSize: 14,
         filter: null,
         waitedForFactsMs: 0,
+        attempt: 1,
+        query: "sequência recente do Palmeiras",
         results: [{ id: 1, score: 0.5, payload: samplePayload("p01") }],
       },
     ];
@@ -244,6 +249,8 @@ describe("formatTrace", () => {
         collectionSize: 14,
         filter: null,
         waitedForFactsMs: 0,
+        attempt: 1,
+        query: "sequência recente do Palmeiras",
         results: [],
       },
     ];
@@ -282,7 +289,14 @@ describe("formatTrace", () => {
 
   it("lists a retrieved passage that was not cited", () => {
     const trace: TraceEntry[] = [
-      { node: "writer", model: "claude-opus-5 (effort high)", ms: 100, cited: ["p03"], retrievedNotCited: ["p07"] },
+      {
+        node: "writer",
+        model: "claude-opus-5 (effort high)",
+        ms: 100,
+        cited: ["p03"],
+        retrievedNotCited: ["p07"],
+        contextFromAttempt: 1,
+      },
     ];
 
     const output = formatTrace(buildFinalState(trace));
@@ -302,6 +316,8 @@ describe("formatTrace", () => {
         collectionSize: 14,
         filter: null,
         waitedForFactsMs: 0,
+        attempt: 1,
+        query: "sequência recente do Palmeiras",
         results: [{ id: 1, score: 0.5, payload: samplePayload("p01") }],
       },
     ];
@@ -320,6 +336,8 @@ describe("formatTrace", () => {
         collectionSize: 14,
         filter: null,
         waitedForFactsMs: 0,
+        attempt: 1,
+        query: "sequência recente do Palmeiras",
         results: [
           { id: 1, score: 0.612, payload: samplePayload("p03", "matchReport", { chunkIndex: 1, chunkCount: 4 }) },
         ],
@@ -351,6 +369,8 @@ describe("formatTrace", () => {
         collectionSize: 14,
         filter: null,
         waitedForFactsMs: 0,
+        attempt: 1,
+        query: "sequência recente do Palmeiras",
         results: [],
       },
     ];
@@ -377,6 +397,8 @@ describe("formatTrace", () => {
           ],
         },
         waitedForFactsMs: 610,
+        attempt: 1,
+        query: "sequência recente do Palmeiras",
         results: [{ id: 1, score: 0.612, payload: samplePayload("p03") }],
       },
     ];
@@ -400,6 +422,8 @@ describe("formatTrace", () => {
         collectionSize: 14,
         filter: { must: [{ key: "teams", match: { value: "palmeiras" } }] },
         waitedForFactsMs: 0,
+        attempt: 1,
+        query: "sequência recente do Palmeiras",
         results: [],
       },
     ];
@@ -501,6 +525,8 @@ describe("formatTrace", () => {
         collectionSize: 97,
         filter: { must: [{ key: "teams", match: { value: "palmeiras" } }] },
         waitedForFactsMs: 0,
+        attempt: 1,
+        query: "sequência recente do Palmeiras",
         results: [decayedResult],
       },
     ];
@@ -519,6 +545,8 @@ describe("formatTrace", () => {
         collectionSize: 97,
         filter: null,
         waitedForFactsMs: 0,
+        attempt: 1,
+        query: "sequência recente do Palmeiras",
         results: [{ id: 1, score: 0.5, payload: samplePayload("p01") }],
       },
     ];
@@ -587,5 +615,273 @@ describe("formatTrace", () => {
       }),
     );
     expect(both).toContain("no narrative context, no API facts");
+  });
+
+  it("grader entry: prints the ratio line with the threshold, a ✓/✗ per passage with its reason, and attempt N/3", () => {
+    const trace: TraceEntry[] = [
+      {
+        node: "grader",
+        model: "claude-haiku-4-5",
+        ms: 1120,
+        attempt: 1,
+        grades: [
+          { passageId: "p03", chunkIndex: 0, relevant: true, reason: "analisa a sequência recente do Palmeiras" },
+          { passageId: "p11", chunkIndex: 0, relevant: false, reason: "é nota sobre venda de ingressos" },
+          { passageId: "p04", chunkIndex: 0, relevant: false, reason: "fala do time feminino" },
+        ],
+        approved: 1,
+        judged: 3,
+        approvedRatio: 1 / 3,
+        threshold: 0.4,
+        rewriting: true,
+      },
+    ];
+
+    const output = formatTrace(buildFinalState(trace));
+
+    expect(output).toContain("attempt 1/3");
+    expect(output).toContain("approved 1 of 3 judged");
+    expect(output).toContain("threshold 0.40");
+    expect(output).toContain("→ rewriting the query");
+    expect(output).toContain('✓ p03  "analisa a sequência recente do Palmeiras"');
+    expect(output).toContain('✗ p11  "é nota sobre venda de ingressos"');
+    expect(output).toContain('✗ p04  "fala do time feminino"');
+  });
+
+  it("grader entry: a round that keeps the context says so and doesn't mention rewriting", () => {
+    const trace: TraceEntry[] = [
+      {
+        node: "grader",
+        model: "claude-haiku-4-5",
+        ms: 980,
+        attempt: 2,
+        grades: [
+          { passageId: "p09", chunkIndex: 0, relevant: true, reason: "fala da fase do time" },
+          { passageId: "p12", chunkIndex: 0, relevant: true, reason: "explica a sequência recente" },
+        ],
+        approved: 2,
+        judged: 2,
+        approvedRatio: 1,
+        threshold: 0.4,
+        rewriting: false,
+      },
+    ];
+
+    const output = formatTrace(buildFinalState(trace));
+
+    expect(output).toContain("attempt 2/3");
+    expect(output).toContain("→ keeping this context");
+    expect(output).not.toContain("rewriting the query");
+  });
+
+  it("the footer counts grades.length LLM calls per grader entry, not one — two rounds of 5 count 10", () => {
+    function graderEntry(attempt: number): TraceEntry {
+      return {
+        node: "grader",
+        model: "claude-haiku-4-5",
+        ms: 500,
+        attempt,
+        grades: Array.from({ length: 5 }, (_, index) => ({
+          passageId: `p${index}`,
+          chunkIndex: 0,
+          relevant: true,
+          reason: "relevante",
+        })),
+        approved: 5,
+        judged: 5,
+        approvedRatio: 1,
+        threshold: 0.4,
+        rewriting: false,
+      };
+    }
+
+    const output = formatTrace(buildFinalState([graderEntry(1), graderEntry(2)]));
+
+    expect(output).toContain("10 LLM calls ·");
+  });
+
+  it("queryRewrite entry: prints from:/to: and attempt N/2", () => {
+    const trace: TraceEntry[] = [
+      {
+        node: "queryRewrite",
+        model: "claude-opus-5 (effort medium)",
+        ms: 2300,
+        attempt: 1,
+        previousQuery: "sequência recente do Palmeiras",
+        newQuery: "fase do Palmeiras: desempenho e resultados das últimas semanas",
+        rejected: [{ passageId: "p11", reason: "é nota sobre venda de ingressos" }],
+      },
+    ];
+
+    const output = formatTrace(buildFinalState(trace));
+
+    expect(output).toContain("attempt 1/2");
+    expect(output).toContain('from: "sequência recente do Palmeiras"');
+    expect(output).toContain('to:   "fase do Palmeiras: desempenho e resultados das últimas semanas"');
+  });
+
+  it("queryRewrite entry with an error prints it instead of from:/to:", () => {
+    const trace: TraceEntry[] = [
+      {
+        node: "queryRewrite",
+        model: "claude-opus-5 (effort medium)",
+        ms: 0,
+        attempt: 1,
+        previousQuery: "sequência recente do Palmeiras",
+        newQuery: "sequência recente do Palmeiras",
+        rejected: [],
+        error: "planner call failed: 500",
+      },
+    ];
+
+    const output = formatTrace(buildFinalState(trace));
+
+    expect(output).toContain("ERROR: planner call failed: 500");
+    expect(output).not.toContain("from:");
+  });
+
+  it("critic entry without an orphan number: says 'orphan numbers: none' and doesn't count an LLM call", () => {
+    const trace: TraceEntry[] = [
+      {
+        node: "critic",
+        model: null,
+        ms: 0,
+        orphanNumbers: [],
+        rewritten: false,
+        remainingOrphanNumbers: [],
+        redactedSentences: [],
+        previousAnswer: null,
+      },
+    ];
+
+    const output = formatTrace(buildFinalState(trace));
+
+    expect(output).toContain("orphan numbers: none");
+    expect(output).toContain("0 LLM calls ·");
+  });
+
+  it("critic entry with a clean rewrite: counts one LLM call and prints the truncated previous answer", () => {
+    const longPreviousAnswer = `O Palmeiras perdeu por 1 x 3 e vinha de uma sequência de 4 vitórias seguidas que ${"a".repeat(80)}.`;
+    const trace: TraceEntry[] = [
+      {
+        node: "critic",
+        model: "claude-opus-5 (effort medium)",
+        ms: 3400,
+        orphanNumbers: [4],
+        rewritten: true,
+        remainingOrphanNumbers: [],
+        redactedSentences: [],
+        previousAnswer: longPreviousAnswer,
+      },
+    ];
+
+    const output = formatTrace(buildFinalState(trace));
+
+    expect(output).toContain("orphan numbers found: 4");
+    expect(output).toContain("answer rewritten (1 of 1)");
+    expect(output).toContain("after the rewrite: clean");
+    expect(output).toContain(`before: "${longPreviousAnswer.slice(0, 120)}…"`);
+    expect(output).not.toContain(longPreviousAnswer);
+    expect(output).toContain("1 LLM call ·");
+  });
+
+  it("critic entry with a redaction: prints the removed sentences, and describeLowConfidence mentions the removed claim and the orphan number", () => {
+    const trace: TraceEntry[] = [
+      {
+        node: "critic",
+        model: "claude-opus-5 (effort medium)",
+        ms: 3400,
+        orphanNumbers: [4],
+        rewritten: true,
+        remainingOrphanNumbers: [4],
+        redactedSentences: ["O time vinha de 4 vitórias seguidas [p05]."],
+        previousAnswer: "O Palmeiras perdeu por 1 x 3 [p03]. O time vinha de 4 vitórias seguidas [p05].",
+      },
+    ];
+
+    const output = formatTrace(
+      buildFinalState(trace, {
+        answer: {
+          text: "O Palmeiras perdeu por 1 x 3 [p03]. (Uma ou mais afirmações foram removidas desta resposta: continham números sem confirmação nos dados oficiais da API.)",
+          citedPassages: ["p03"],
+          lowConfidence: true,
+        },
+      }),
+    );
+
+    expect(output).toContain("still orphan: 4");
+    expect(output).toContain("1 sentence removed (deterministic)");
+    expect(output).toContain('removed: "O time vinha de 4 vitórias seguidas [p05]."');
+    expect(output).toContain("1 claim removed from the answer: number(s) 4 had no API backing");
+  });
+
+  it("critic entry with a call error that still got redacted: shows both the ERROR and the removed sentences, never 'unchanged'", () => {
+    const trace: TraceEntry[] = [
+      {
+        node: "critic",
+        model: "claude-opus-5 (effort medium)",
+        ms: 1200,
+        orphanNumbers: [4],
+        rewritten: false,
+        remainingOrphanNumbers: [4],
+        redactedSentences: ["O time vinha de 4 vitórias seguidas [p05]."],
+        previousAnswer: "O Palmeiras perdeu por 1 x 3 [p03]. O time vinha de 4 vitórias seguidas [p05].",
+        error: "critic call failed: 500",
+      },
+    ];
+
+    const output = formatTrace(buildFinalState(trace));
+
+    expect(output).toContain("ERROR: critic call failed: 500");
+    expect(output).toContain("still orphan: 4");
+    expect(output).toContain("1 sentence removed (deterministic)");
+    expect(output).toContain('removed: "O time vinha de 4 vitórias seguidas [p05]."');
+    expect(output).not.toContain("answer unchanged");
+  });
+
+  it("search_vector_context with attempt 1 prints exactly as before task 06 — no 'attempt' header, no 'query:' line", () => {
+    const trace: TraceEntry[] = [
+      {
+        node: "search_vector_context",
+        model: "voyage-3.5",
+        ms: 290,
+        k: 5,
+        collection: "camisa10",
+        collectionSize: 14,
+        filter: null,
+        waitedForFactsMs: 0,
+        results: [],
+        attempt: 1,
+        query: "sequência recente do Palmeiras",
+      },
+    ];
+
+    const output = formatTrace(buildFinalState(trace));
+
+    expect(output).not.toContain("(attempt 1)");
+    expect(output).not.toContain("query:");
+  });
+
+  it("search_vector_context with attempt > 1 becomes its own numbered step, with the 'query:' line", () => {
+    const trace: TraceEntry[] = [
+      {
+        node: "search_vector_context",
+        model: "voyage-3.5",
+        ms: 800,
+        k: 5,
+        collection: "camisa10",
+        collectionSize: 97,
+        filter: { must: [{ key: "teams", match: { value: "palmeiras" } }] },
+        waitedForFactsMs: 0,
+        results: [{ id: 9, score: 0.612, payload: samplePayload("p09", "chronicle") }],
+        attempt: 2,
+        query: "fase do Palmeiras: desempenho e resultados das últimas semanas",
+      },
+    ];
+
+    const output = formatTrace(buildFinalState(trace));
+
+    expect(output).toContain("search_vector_context (attempt 2)");
+    expect(output).toContain('query: "fase do Palmeiras: desempenho e resultados das últimas semanas"');
   });
 });

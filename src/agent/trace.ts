@@ -4,6 +4,9 @@ import type { Facts, Match, Team } from "../sources/index.ts";
 import type { TeamForm, TeamFormMatch } from "../sources/team-form.ts";
 import type { QdrantFilter } from "../vectorstore/qdrant.ts";
 import type { SearchResult } from "../vectorstore/types.ts";
+import { MAX_ANSWER_REWRITES } from "./nodes/critic.ts";
+import { MAX_QUERY_REWRITES } from "./nodes/grade.ts";
+import type { PassageGrade } from "./nodes/grade.ts";
 import type { Entity, FinalState, Plan } from "./state.ts";
 
 export type TraceEntry =
@@ -33,9 +36,67 @@ export type TraceEntry =
       /** How long the branch waited for fetch_facts_api. Always 0 outside current_matchweek. */
       waitedForFactsMs: number;
       results: SearchResult[];
+      /** 1-based: which search of the grading loop this was. */
+      attempt: number;
+      /** The searchQuery actually embedded. Implicit in the planner entry until task 06 —
+       *  from now on it changes per attempt, so it has to be on the entry that used it. */
+      query: string;
       error?: string;
     }
-  | { node: "writer"; model: string; ms: number; cited: string[]; retrievedNotCited: string[] };
+  | {
+      node: "grader";
+      /** MODELS.grader.model — the N parallel calls all use it. */
+      model: string;
+      /** The whole parallel batch, not the sum of the calls. */
+      ms: number;
+      /** 1-based: 1 is the fan-out's search, 2 and 3 come after a rewrite. */
+      attempt: number;
+      /** One per judged passage, in retrieval order. [] when nothing was retrieved. */
+      grades: PassageGrade[];
+      /** grades.filter(g => g.relevant).length — kept explicit so the trace doesn't have to
+       *  recompute the number the decision was made on. */
+      approved: number;
+      judged: number;
+      /** null when judged === 0. */
+      approvedRatio: number | null;
+      threshold: number;
+      /** Whether this grading round triggered a query rewrite. */
+      rewriting: boolean;
+    }
+  | {
+      node: "queryRewrite";
+      model: string;
+      ms: number;
+      /** 1-based, at most MAX_QUERY_REWRITES. */
+      attempt: number;
+      previousQuery: string;
+      /** Equal to previousQuery when the planner produced no real change — the loop stops there. */
+      newQuery: string;
+      rejected: { passageId: string; reason: string }[];
+      /** The rewrite call itself failed; the loop stops with the context it already had. */
+      error?: string;
+    }
+  | {
+      node: "writer";
+      model: string;
+      ms: number;
+      cited: string[];
+      retrievedNotCited: string[];
+      /** Which grading attempt's approved context the writer actually saw (spec §6). */
+      contextFromAttempt: number;
+    }
+  | {
+      node: "critic";
+      /** null when no LLM call was needed — the happy path. */
+      model: string | null;
+      ms: number;
+      orphanNumbers: number[];
+      rewritten: boolean;
+      remainingOrphanNumbers: number[];
+      redactedSentences: string[];
+      previousAnswer: string | null;
+      error?: string;
+    };
 
 export async function measure<T>(fn: () => Promise<T>): Promise<{ value: T; ms: number }> {
   const start = performance.now();
@@ -88,6 +149,49 @@ function truncate(text: string, maxLength: number): string {
   return text.length > maxLength ? `${text.slice(0, maxLength)}…` : text;
 }
 
+/**
+ * The error/empty/results-with-scores body of a search_vector_context entry — shared by
+ * the fan-out's first search and every retry after a rewrite (task 06), which only differ
+ * in the header above this and the indent used.
+ */
+function pushSearchResultLines(
+  lines: string[],
+  entry: Extract<TraceEntry, { node: "search_vector_context" }>,
+  indent: string,
+): void {
+  if (entry.error !== undefined) {
+    lines.push(`${indent}ERROR: ${entry.error}`);
+    return;
+  }
+  if (entry.results.length === 0) {
+    lines.push(`${indent}no passages retrieved`);
+    return;
+  }
+
+  // The pool/decay suffix is derived from the results, not a field on the trace entry:
+  // it only ever shows up when at least one result actually went through rankByTimeDecay
+  // (spec §9) — everywhere else this prints exactly as before.
+  const hasDecayedResults = entry.results.some(isDecayedResult);
+  const poolSuffix = hasDecayedResults
+    ? `   (pool of ${entry.k * CANDIDATE_POOL_FACTOR}, time decay: half-life ${TIME_DECAY_HALF_LIFE_DAYS}d)`
+    : "";
+  lines.push(`${indent}k=${entry.k} over ${entry.collectionSize} points in collection ${entry.collection}${poolSuffix}`);
+
+  entry.results.forEach((result, index) => {
+    // chunkCount === 1 means the passage wasn't split — the whole fixture today, and
+    // printing "chunk 1/1" there wouldn't teach anything. 1-based here because it's text
+    // for a human; the underlying field stays 0-based.
+    const chunkLabel =
+      result.payload.chunkCount > 1 ? `  chunk ${result.payload.chunkIndex + 1}/${result.payload.chunkCount}` : "";
+    const decaySuffix = isDecayedResult(result)
+      ? `   (sim ${result.similarity.toFixed(3)} × decay ${result.timeDecay.toFixed(3)})`
+      : "";
+    lines.push(
+      `${indent}#${index + 1}  ${result.score.toFixed(3)}  ${result.payload.passageId}${chunkLabel}  ${result.payload.type}  "${truncate(result.payload.text, 45)}"${decaySuffix}`,
+    );
+  });
+}
+
 function findPassageSource(trace: TraceEntry[], passageId: string): string {
   for (const entry of trace) {
     if (entry.node !== "search_vector_context") continue;
@@ -99,9 +203,9 @@ function findPassageSource(trace: TraceEntry[], passageId: string): string {
 
 /**
  * `lowConfidence` is one boolean for several different reasons (src/generation/writer.ts:
- * empty context, missing facts, or — team_form only — missing recent form) — say which
- * one it actually was instead of a fixed string that's wrong whenever facts failed but
- * context was retrieved.
+ * empty context, missing facts, or — team_form only — missing recent form; task 06 adds a
+ * fourth, the critic's redaction) — say which one it actually was instead of a fixed
+ * string that's wrong whenever facts failed but context was retrieved.
  */
 function describeLowConfidence(state: FinalState): string {
   const noContext = state.context.length === 0;
@@ -113,12 +217,11 @@ function describeLowConfidence(state: FinalState): string {
   else if (noContext) base = "no narrative context, API facts only";
   else base = null;
 
-  const formReason = describeMissingFormReason(state);
+  const reasons = [base, describeMissingFormReason(state), describeCriticReason(state)].filter(
+    (reason): reason is string => reason !== null,
+  );
 
-  if (base !== null && formReason !== null) return `${base}; ${formReason}`;
-  if (base !== null) return base;
-  if (formReason !== null) return formReason;
-  return "low confidence";
+  return reasons.length > 0 ? reasons.join("; ") : "low confidence";
 }
 
 /**
@@ -132,6 +235,23 @@ function describeMissingFormReason(state: FinalState): string | null {
     return "no team identified in the question, so no recent form and no team filter";
   }
   return "no recent form for the team";
+}
+
+/**
+ * Task 06's reason: the critic hit the self-check ceiling and had to remove a claim
+ * outright. Reads the trace instead of a dedicated Answer field (spec §11) — the trace
+ * already is the record of what happened in the graph, and a second field would just be
+ * a copy of the critic entry that could drift out of sync with it.
+ */
+function describeCriticReason(state: FinalState): string | null {
+  const criticEntries = state.trace.filter(
+    (entry): entry is Extract<TraceEntry, { node: "critic" }> => entry.node === "critic",
+  );
+  const lastCritic = criticEntries[criticEntries.length - 1];
+  if (lastCritic === undefined || lastCritic.redactedSentences.length === 0) return null;
+
+  const count = lastCritic.redactedSentences.length;
+  return `${count} claim${count === 1 ? "" : "s"} removed from the answer: number(s) ${lastCritic.remainingOrphanNumbers.join(", ")} had no API backing`;
 }
 
 /**
@@ -222,40 +342,69 @@ export function formatTrace(state: FinalState): string {
 
       case "search_vector_context": {
         embeddingCalls += 1;
-        fanOutMs = Math.max(fanOutMs, entry.ms);
-        if (fanOutHeaderIndex >= 0) {
-          lines[fanOutHeaderIndex] = `${lines[fanOutHeaderIndex]}    ${formatSeconds(fanOutMs)}`;
-        }
-        const waitedSuffix =
-          entry.waitedForFactsMs > 0 ? `    (waited ${formatSeconds(entry.waitedForFactsMs)} for fetch_facts_api)` : "";
-        lines.push(`    └── search_vector_context    ${entry.model}    ${formatSeconds(entry.ms)}${waitedSuffix}`);
-        lines.push(`        filter: ${entry.filter !== null ? JSON.stringify(entry.filter) : "none"}`);
-        if (entry.error !== undefined) {
-          lines.push(`        ERROR: ${entry.error}`);
-        } else if (entry.results.length === 0) {
-          lines.push("        no passages retrieved");
+
+        // attempt === 1 is the fan-out's own search — it prints inside that block,
+        // exactly as before task 06. Every retry after a rewrite (attempt > 1) never ran
+        // in parallel with fetch_facts_api, so it gets its own numbered step instead.
+        if (entry.attempt === 1) {
+          fanOutMs = Math.max(fanOutMs, entry.ms);
+          if (fanOutHeaderIndex >= 0) {
+            lines[fanOutHeaderIndex] = `${lines[fanOutHeaderIndex]}    ${formatSeconds(fanOutMs)}`;
+          }
+          const waitedSuffix =
+            entry.waitedForFactsMs > 0 ? `    (waited ${formatSeconds(entry.waitedForFactsMs)} for fetch_facts_api)` : "";
+          lines.push(`    └── search_vector_context    ${entry.model}    ${formatSeconds(entry.ms)}${waitedSuffix}`);
+          lines.push(`        filter: ${entry.filter !== null ? JSON.stringify(entry.filter) : "none"}`);
+          pushSearchResultLines(lines, entry, "        ");
+          lines.push("");
         } else {
-          // The pool/decay suffix is derived from the results, not a field on the trace
-          // entry: it only ever shows up when at least one result actually went through
-          // rankByTimeDecay (spec §9) — everywhere else this prints exactly as before.
-          const hasDecayedResults = entry.results.some(isDecayedResult);
-          const poolSuffix = hasDecayedResults
-            ? `   (pool of ${entry.k * CANDIDATE_POOL_FACTOR}, time decay: half-life ${TIME_DECAY_HALF_LIFE_DAYS}d)`
-            : "";
-          lines.push(`        k=${entry.k} over ${entry.collectionSize} points in collection ${entry.collection}${poolSuffix}`);
-          entry.results.forEach((result, index) => {
-            // chunkCount === 1 means the passage wasn't split — the whole fixture today,
-            // and printing "chunk 1/1" there wouldn't teach anything. 1-based here because
-            // it's text for a human; the underlying field stays 0-based.
-            const chunkLabel =
-              result.payload.chunkCount > 1 ? `  chunk ${result.payload.chunkIndex + 1}/${result.payload.chunkCount}` : "";
-            const decaySuffix = isDecayedResult(result)
-              ? `   (sim ${result.similarity.toFixed(3)} × decay ${result.timeDecay.toFixed(3)})`
-              : "";
-            lines.push(
-              `        #${index + 1}  ${result.score.toFixed(3)}  ${result.payload.passageId}${chunkLabel}  ${result.payload.type}  "${truncate(result.payload.text, 45)}"${decaySuffix}`,
-            );
-          });
+          stepNumber += 1;
+          lines.push(
+            `[${stepNumber}] search_vector_context (attempt ${entry.attempt})    ${entry.model}    ${formatSeconds(entry.ms)}`,
+          );
+          lines.push(`    query: "${entry.query}"`);
+          lines.push(`    filter: ${entry.filter !== null ? JSON.stringify(entry.filter) : "none"}`);
+          pushSearchResultLines(lines, entry, "    ");
+          lines.push("");
+        }
+        break;
+      }
+
+      case "grader": {
+        stepNumber += 1;
+        llmCalls += entry.grades.length;
+        lines.push(
+          `[${stepNumber}] grader    ${entry.model} ×${entry.grades.length} in parallel    ${formatSeconds(entry.ms)}    attempt ${entry.attempt}/${MAX_QUERY_REWRITES + 1}`,
+        );
+        if (entry.grades.length === 0) {
+          lines.push(`    no passages judged   → ${entry.rewriting ? "rewriting the query" : "keeping this context"}`);
+        } else {
+          const ratioLabel = entry.approvedRatio === null ? "n/a" : entry.approvedRatio.toFixed(2);
+          const comparison = entry.approvedRatio === null ? "" : entry.approvedRatio < entry.threshold ? "<" : ">=";
+          const outcome = entry.rewriting ? "rewriting the query" : "keeping this context";
+          lines.push(
+            `    approved ${entry.approved} of ${entry.judged} judged   ratio ${ratioLabel} ${comparison} threshold ${entry.threshold.toFixed(2)}   → ${outcome}`,
+          );
+          for (const grade of entry.grades) {
+            const mark = grade.relevant ? "✓" : "✗";
+            lines.push(`    ${mark} ${grade.passageId}  "${grade.reason}"`);
+          }
+        }
+        lines.push("");
+        break;
+      }
+
+      case "queryRewrite": {
+        stepNumber += 1;
+        llmCalls += 1;
+        lines.push(
+          `[${stepNumber}] queryRewrite    ${entry.model}    ${formatSeconds(entry.ms)}    attempt ${entry.attempt}/${MAX_QUERY_REWRITES}`,
+        );
+        if (entry.error !== undefined) {
+          lines.push(`    ERROR: ${entry.error}`);
+        } else {
+          lines.push(`    from: "${entry.previousQuery}"`);
+          lines.push(`    to:   "${entry.newQuery}"`);
         }
         lines.push("");
         break;
@@ -266,12 +415,72 @@ export function formatTrace(state: FinalState): string {
         llmCalls += 1;
         lines.push(`[${stepNumber}] writer    ${entry.model}    ${formatSeconds(entry.ms)}`);
         lines.push("    allowed numbers: only the API facts above");
+        lines.push(`    context from attempt ${entry.contextFromAttempt}`);
         const cited = entry.cited.length > 0 ? entry.cited.join(", ") : "none";
         const notCited =
           entry.retrievedNotCited.length > 0
             ? `   (retrieved but not cited: ${entry.retrievedNotCited.join(", ")})`
             : "";
         lines.push(`    cited: ${cited}${notCited}`);
+        lines.push("");
+        break;
+      }
+
+      case "critic": {
+        stepNumber += 1;
+        if (entry.model !== null) llmCalls += 1;
+        const modelLabel = entry.model ?? "deterministic check";
+        lines.push(`[${stepNumber}] critic    ${modelLabel}    ${formatSeconds(entry.ms)}`);
+
+        if (entry.orphanNumbers.length === 0) {
+          lines.push("    orphan numbers: none → answer unchanged");
+          lines.push("");
+          break;
+        }
+
+        // isCleanRewrite / isRedacted decide the whole block below, including the
+        // top-line status: `entry.rewritten` is false exactly when the critic call itself
+        // failed (critic.ts), but the correction that came out of round 1 of review still
+        // runs the deterministic redaction on that path — so "the call failed" and "the
+        // answer changed" are independent facts, and both have to show up when both are true
+        // (achado A of round 2: printing "unchanged" here contradicted the low-confidence
+        // warning below, which already listed the removed claim).
+        const isCleanRewrite = entry.rewritten && entry.remainingOrphanNumbers.length === 0;
+        const isRedacted = entry.redactedSentences.length > 0;
+
+        let rewriteStatus: string;
+        if (entry.rewritten) {
+          // Model rewrite ran (no call error) — clean or still-redacted, same status line;
+          // the "after the rewrite" body below spells out which one it was.
+          rewriteStatus = `answer rewritten (${MAX_ANSWER_REWRITES} of ${MAX_ANSWER_REWRITES})`;
+        } else if (isRedacted) {
+          rewriteStatus = "answer redacted (critic call failed, deterministic removal)";
+        } else {
+          // Call failed and the deterministic redaction found no sentence to remove — the
+          // only case where "unchanged" is actually true.
+          rewriteStatus = "answer unchanged (critic call failed)";
+        }
+        lines.push(`    orphan numbers found: ${entry.orphanNumbers.join(", ")}   → ${rewriteStatus}`);
+
+        if (entry.previousAnswer !== null) {
+          lines.push(`    before: "${truncate(entry.previousAnswer, 120)}"`);
+        }
+
+        if (entry.error !== undefined) {
+          lines.push(`    ERROR: ${entry.error}`);
+        }
+
+        if (isCleanRewrite) {
+          lines.push("    after the rewrite: clean");
+        } else if (isRedacted) {
+          const sentenceWord = entry.redactedSentences.length === 1 ? "sentence" : "sentences";
+          lines.push(
+            `    after the rewrite: still orphan: ${entry.remainingOrphanNumbers.join(", ")}   → ${entry.redactedSentences.length} ${sentenceWord} removed (deterministic)`,
+          );
+          for (const sentence of entry.redactedSentences) {
+            lines.push(`    removed: "${sentence.trim()}"`);
+          }
+        }
         lines.push("");
         break;
       }
@@ -298,13 +507,14 @@ export function formatTrace(state: FinalState): string {
     lines.push("");
   }
 
-  // fetch_facts_api and search_vector_context run inside the same Promise.allSettled —
-  // summing every entry's ms would double-count that overlap, same mistake the fan-out
-  // header avoided above with Math.max.
+  // fetch_facts_api and search_vector_context's first attempt run inside the same
+  // Promise.allSettled — summing every entry's ms would double-count that overlap, same
+  // mistake the fan-out header avoided above with Math.max. A retry search (attempt > 1)
+  // never runs in parallel with anything, so it's summed like any other sequential step.
   let totalMs = 0;
   let totalFanOutMs = 0;
   for (const entry of state.trace) {
-    if (entry.node === "fetch_facts_api" || entry.node === "search_vector_context") {
+    if (entry.node === "fetch_facts_api" || (entry.node === "search_vector_context" && entry.attempt === 1)) {
       totalFanOutMs = Math.max(totalFanOutMs, entry.ms);
     } else {
       totalMs += entry.ms;

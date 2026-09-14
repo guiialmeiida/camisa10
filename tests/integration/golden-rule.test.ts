@@ -24,7 +24,10 @@ vi.mock("../../src/ingestion/classify.ts", () => ({
 
 const { answer } = await import("../../src/agent/graph.ts");
 const { indexPassages } = await import("../../src/ingestion/indexer.ts");
-const { isoDateParts } = await import("../../src/generation/match-format.ts");
+// Task 06 promotes this task's own check to production code — see docs/tasks/06 §12,
+// item 5: the unit level (tests/agent/critic.test.ts) and this integration level now
+// exercise the same function instead of a copy that could quietly drift from it.
+const { allowedNumbers, findOrphanNumbers } = await import("../../src/agent/nodes/critic.ts");
 import type { FinalState } from "../../src/agent/state.ts";
 
 // Every spelling of the trap chronicle's (p07) wrong score — must never reach the answer.
@@ -36,35 +39,8 @@ const WRONG_SCORE_PATTERNS = [
   /dois gols a zero/i,
 ];
 
-function findOrphanNumbers(state: FinalState): number[] {
-  const allowed = new Set<number>();
-
-  if (state.facts) {
-    allowed.add(state.facts.matchweek);
-    allowed.add(state.facts.competition.season);
-    for (const match of state.facts.matches) {
-      // Reads the day/month straight off the ISO string's digits, like match-format.ts
-      // does in production — new Date(...).getDate() depends on the host's timezone,
-      // which is exactly the bug task 00's review fixed in the code under test. This
-      // test would silently carry that same bug back in if it used Date getters here.
-      const { day, month } = isoDateParts(match.date);
-      allowed.add(day);
-      allowed.add(month);
-      if (match.status === "finished" || match.status === "live") {
-        allowed.add(match.score.home);
-        allowed.add(match.score.away);
-        if (match.status === "live" && match.minute !== null) {
-          allowed.add(match.minute);
-        }
-      }
-    }
-  }
-
-  // Strip [pNN] citations first — those digits belong to a passage id, not a fact.
-  const textWithoutCitations = state.answer.text.replace(/\[[a-zA-Z0-9]+\]/g, "");
-  const numbers = [...textWithoutCitations.matchAll(/\d+/g)].map((match) => Number(match[0]));
-
-  return numbers.filter((n) => !allowed.has(n));
+function orphanNumbersIn(state: FinalState): number[] {
+  return findOrphanNumbers(state.answer.text, allowedNumbers(state));
 }
 
 describe("golden rule: no number leaks from the vector index", () => {
@@ -106,7 +82,7 @@ describe("golden rule: no number leaks from the vector index", () => {
           expect(state.answer.text).not.toMatch(pattern);
         }
 
-        expect(findOrphanNumbers(state)).toEqual([]);
+        expect(orphanNumbersIn(state)).toEqual([]);
 
         // Voyage's free tier (3 requests/min without a payment method on file) counts
         // indexPassages()'s own embedding call in beforeAll plus each run's query

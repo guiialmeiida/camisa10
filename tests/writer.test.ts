@@ -135,6 +135,12 @@ describe("buildPrompt", () => {
     expect(prompt.system.toLowerCase()).toContain("nunca escreva, na resposta, nenhum número");
   });
 
+  it("instructs the writer not to derive new numbers (spec §10)", () => {
+    const prompt = buildPrompt(buildState());
+
+    expect(prompt.system.toLowerCase()).toContain("não calcule nem derive números novos");
+  });
+
   it("asks for low confidence when context is empty", () => {
     const prompt = buildPrompt(buildState({ context: [] }));
 
