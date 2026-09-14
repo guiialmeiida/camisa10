@@ -56,6 +56,23 @@ comando do dia a dia.
 (sem `--recreate`) **uma vez** depois de atualizar, para a coleção já existente ganhar o índice
 novo.
 
+**Migração pós-merge da tarefa 06**: sem mudança de schema do índice — os dois loops de feedback
+(`docs/tasks/06-feedback-loops.md`, `docs/learning/07-feedback-loops.md`) vivem só no lado da
+pergunta. Nenhum `npm run index` extra é necessário. O `npm run ask` continua igual de fora; o que
+muda é o que o traço mostra quando um dos dois loops dispara — ver abaixo.
+
+Desde a tarefa 06, o agente tem dois loops de feedback, visíveis no traço quando disparam: um
+grader (`claude-haiku-4-5`) julga cada trecho recuperado por relevância antes de escrever, e
+reescreve a busca até 2 vezes se sobrar pouco de aproveitável; depois de escrever, uma checagem
+determinística confere que nenhum número da resposta é órfão (sem lastro nos fatos da API) — se
+achar um, o crítico (`claude-opus-5`) tem 1 chance de reescrever, e no pior caso a frase problemática
+é removida por código, nunca um número inventado chega ao usuário. Como o caminho normal raramente
+aciona os dois, `npm run demo:loops` força o cenário e mostra os dois loops em ação:
+
+```bash
+npm run demo:loops                                       # força e mostra o loop de self-check disparando
+```
+
 Ferramenta de inspeção manual do chunking (não entra no `npm test`, não tem "passou/falhou"):
 
 ```bash
@@ -88,10 +105,19 @@ npm run test:integration                      # sem LLM_CASSETTE: sempre API rea
 ```
 
 O cassette gravado (`tests/integration/__cassettes__/llm-calls.json`) já está commitado, então
-`LLM_CASSETTE=replay` funciona de graça assim que você clona o repo — até que os prompts mudem e
-ele precise ser regravado. Ver `tests/integration/support/llm-cassette.ts` para os detalhes, e
-o aviso impresso em modo replay: ele reproduz gerações já gravadas, não reprova o invariante da
-regra de ouro contra uma geração nova — para isso, rode sem `LLM_CASSETTE`.
+`LLM_CASSETTE=replay` funciona de graça pra maioria dos testes assim que você clona o repo — até
+que os prompts mudem e precisem ser regravados. Ver `tests/integration/support/llm-cassette.ts`
+para os detalhes, e o aviso impresso em modo replay: ele reproduz gerações já gravadas, não
+reprova o invariante da regra de ouro contra uma geração nova — para isso, rode sem
+`LLM_CASSETTE`.
+
+**Exceção conhecida**: `tests/integration/golden-rule.test.ts` não fecha em `LLM_CASSETTE=replay`
+desde a tarefa 06 (limitação estrutural, não bug de gravação — ver "Acompanhamento" em
+`docs/tasks/06-feedback-loops.md` § Testes). O Qdrant nunca fica no cassette (só Anthropic/Voyage
+ficam), e a coleção é reconstruída do zero a cada execução; a busca aproximada por HNSW não
+garante composição/ordem idêntica do top-k entre duas reconstruções, e com grading + crítico no
+meio, isso já é o bastante pra mudar o corpo exato da chamada do redator e descasar do cassette.
+O teste passa de forma confiável contra a API real (sem `LLM_CASSETTE`).
 
 ## Estrutura
 
@@ -99,6 +125,8 @@ regra de ouro contra uma geração nova — para isso, rode sem `LLM_CASSETTE`.
 - `src/ingestion/` — pipeline de ingestão (dedup, tags, embedding)
 - `src/vectorstore/` — cliente do índice vetorial
 - `src/retrieval/` — os dois modos de consulta (rodada atual, forma do time)
+- `src/agent/` — o grafo do agente: extração de entidade, planner, os dois loops de feedback
+  (grader + crítico), traço
 - `src/generation/` — geração de resposta com citação
 
 Cada pasta tem um `README.md` curto apontando pra tarefa correspondente.
@@ -123,4 +151,7 @@ testes. Ver o modelo em `docs/tasks/TASK_TEMPLATE.md`.
 
 O **discovery** é sempre uma conversa direta com o usuário (skill `grill-me`, em
 `.claude/skills/`). O refinamento, a implementação e a revisão usam os agentes definidos em
-`.claude/agents/`, com a aprovação da spec pelo usuário entre o refinamento e a implementação.
+`.claude/agents/`. O usuário entra em dois pontos: quando o `refinador` deixa uma decisão em
+aberto (aí o ciclo para até ele decidir), e para revisar o PR já pronto no final — a revisão do
+`revisor` roda localmente, antes de existir PR, e o PR só abre depois que ela não acha mais nada
+(ou o teto de 3 rodadas de correção é atingido).

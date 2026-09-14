@@ -135,5 +135,6 @@ em vez de decidir de novo a cada arquivo.
   etapa, para serem trocados e medidos.
 
 ## Próximo passo sugerido
-Abrir `docs/tasks/00-vertical-slice.md`. O discovery dela já está fechado; a próxima etapa é o
-refinamento técnico — que tem três perguntas em aberto no arquivo, para o usuário decidir antes.
+As 7 tarefas do plano (`00-vertical-slice` a `06-feedback-loops`) estão implementadas e
+mergeadas. Não há próxima tarefa planejada em `docs/tasks/` — próximo passo é o que o usuário
+decidir (dívida técnica registrada nas tarefas, feature nova, ou revisão geral).
