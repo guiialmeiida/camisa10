@@ -31,11 +31,17 @@ const { allowedNumbers, findOrphanNumbers } = await import("../../src/agent/node
 import type { FinalState } from "../../src/agent/state.ts";
 
 // Every spelling of the trap chronicle's (p07) wrong score — must never reach the answer.
+// Both digit orders: the writer sometimes phrases a result as "loser 0 x 2 winner" and
+// sometimes as "winner 2 x 0 loser" — either spelling leaks the same wrong number.
 const WRONG_SCORE_PATTERNS = [
   /\b2\s*x\s*0\b/i,
+  /\b0\s*x\s*2\b/i,
   /\b2\s*a\s*0\b/i,
+  /\b0\s*a\s*2\b/i,
   /\b2-0\b/,
+  /\b0-2\b/,
   /dois a zero/i,
+  /zero a dois/i,
   /dois gols a zero/i,
 ];
 
@@ -75,8 +81,11 @@ describe("golden rule: no number leaks from the vector index", () => {
           );
         }
 
-        // The real API score (1 x 3) must appear, in some spelling.
-        expect(state.answer.text).toMatch(/\b1\s*(x|a|-)\s*3\b/);
+        // The real API score (Palmeiras 1 x Fluminense 3) must appear, in some spelling —
+        // including the reversed digit order a fluent narration of an away win commonly
+        // uses ("Fluminense venceu o Palmeiras por 3 a 1"): same score, same fact, written
+        // winner-first instead of home-first. Both describe the one correct result.
+        expect(state.answer.text).toMatch(/\b1\s*(x|a|-)\s*3\b|\b3\s*(x|a|-)\s*1\b/);
 
         for (const pattern of WRONG_SCORE_PATTERNS) {
           expect(state.answer.text).not.toMatch(pattern);
@@ -90,9 +99,12 @@ describe("golden rule: no number leaks from the vector index", () => {
         // Without this pause, the 4th call (run 3's search) gets rate-limited; because
         // runFanOut uses Promise.allSettled (spec §6), that surfaces as a silent,
         // misleading `context: []` — "invalid setup" — rather than a clear 429 error.
-        // Skipped under LLM_CASSETTE: replay hits no real rate limit, and record already
-        // spaces its own real calls out across separate runs of this suite.
-        if (run < 3 && process.env["LLM_CASSETTE"] === undefined) {
+        // Skipped only in replay: replay hits no real rate limit. `record` still makes
+        // real Voyage calls within this same process, so it needs the pause too — the
+        // guard used to be `=== undefined` (skipping it in record), which is exactly the
+        // same class of bug task 03's review fixed in ingestion-incremental.test.ts: it
+        // let `LLM_CASSETTE=record` runs skip the pause and hit the 429 it exists to avoid.
+        if (run < 3 && process.env["LLM_CASSETTE"] !== "replay") {
           await new Promise((resolve) => setTimeout(resolve, 20_000));
         }
       }

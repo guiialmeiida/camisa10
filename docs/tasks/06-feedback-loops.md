@@ -1443,3 +1443,38 @@ por execução real (não só por teste) nas três rodadas, incluindo fuzz de 20
 - `npm run demo:loops` (novo, `tests/eval/loops-demo.ts`): testado manualmente, mostra o loop 2
   disparando de propósito (cenário que o caminho normal não produz, já que o redator funcionando
   não inventa número por conta própria).
+
+### Acompanhamento (2026-09-13): dois bugs reais achados e corrigidos ao tentar regravar o
+### cassette de `golden-rule.test.ts`, e uma limitação estrutural descoberta e documentada
+
+Numa revisão geral do projeto pós-merge, tentei regravar o cassette (`LLM_CASSETTE=record`) pra
+destravar a pendência de infraestrutura acima. No processo:
+
+1. **Bug real corrigido — o teto do regex do teste era estreito demais.** `expect(...).toMatch(/\b1\s*(x|a|-)\s*3\b/)`
+   só aceitava a ordem "mandante x visitante". O redator, ao narrar uma vitória fora de casa,
+   frequentemente escreve "Fluminense venceu o Palmeiras por 3 a 1" (vencedor primeiro) — mesmo
+   placar, mesma vitória, ordem diferente. Confirmado em 6 tentativas reais ao longo do projeto
+   (4 na tarefa 04, 2 nesta): não era ruído de amostragem, era uma preferência estilística estável
+   do modelo. Corrigido: o regex agora aceita as duas ordens, e `WRONG_SCORE_PATTERNS` (o placar
+   errado da crônica-armadilha) ganhou os equivalentes invertidos, pela mesma razão.
+2. **Bug real corrigido — a pausa entre rodadas era pulada em `LLM_CASSETTE=record`.** O guard era
+   `process.env["LLM_CASSETTE"] === undefined`, a mesma classe de bug que a revisão da tarefa 03
+   já tinha corrigido em `ingestion-incremental.test.ts` — mas que sobreviveu aqui. Corrigido para
+   `!== "replay"`. Com os dois bugs corrigidos, `LLM_CASSETTE=record` passou de forma limpa,
+   confirmando de novo (contra a API real) que a regra de ouro se sustenta com os dois loops desta
+   tarefa ativos.
+3. **Limitação estrutural descoberta, não corrigida — `LLM_CASSETTE=replay` continua falhando
+   para este arquivo, e não é mais um problema de cota.** Rodar `replay` imediatamente depois de um
+   `record` bem-sucedido falha de forma **consistente** (não intermitente) na primeira chamada do
+   redator. Causa mais provável: `beforeAll` reconstrói a coleção do Qdrant do zero
+   (`recreate: true`) a cada execução do processo — os embeddings vêm do cassette (bit-idênticos),
+   mas a busca aproximada por HNSW do Qdrant não garante composição/ordem idêntica do top-k entre
+   duas reconstruções do mesmo índice. Antes desta tarefa isso não importava (o corpo da chamada do
+   redator não era sensível a diferenças sutis de composição do contexto); com grading e crítico no
+   meio, qualquer diferença muda o corpo exato da requisição, e o cassette (que casa por hash exato
+   do corpo) para de bater. **Isto não é uma dívida desta tarefa para resolver agora** — registrar
+   como limitação conhecida do arranjo record/replay deste projeto (Qdrant nunca foi cacheado,
+   só Anthropic/Voyage) diante de nós cuja composição de request depende de retrieval aproximado.
+   Uma correção de verdade exigiria ou um Qdrant determinístico (índice exato, não HNSW, inviável
+   em produção) ou mockar o Qdrant neste teste específico (mudaria o que o teste prova). Nenhuma
+   das duas é decisão trivial o bastante pra tomar sem o usuário.

@@ -105,10 +105,19 @@ npm run test:integration                      # sem LLM_CASSETTE: sempre API rea
 ```
 
 O cassette gravado (`tests/integration/__cassettes__/llm-calls.json`) já está commitado, então
-`LLM_CASSETTE=replay` funciona de graça assim que você clona o repo — até que os prompts mudem e
-ele precise ser regravado. Ver `tests/integration/support/llm-cassette.ts` para os detalhes, e
-o aviso impresso em modo replay: ele reproduz gerações já gravadas, não reprova o invariante da
-regra de ouro contra uma geração nova — para isso, rode sem `LLM_CASSETTE`.
+`LLM_CASSETTE=replay` funciona de graça pra maioria dos testes assim que você clona o repo — até
+que os prompts mudem e precisem ser regravados. Ver `tests/integration/support/llm-cassette.ts`
+para os detalhes, e o aviso impresso em modo replay: ele reproduz gerações já gravadas, não
+reprova o invariante da regra de ouro contra uma geração nova — para isso, rode sem
+`LLM_CASSETTE`.
+
+**Exceção conhecida**: `tests/integration/golden-rule.test.ts` não fecha em `LLM_CASSETTE=replay`
+desde a tarefa 06 (limitação estrutural, não bug de gravação — ver "Acompanhamento" em
+`docs/tasks/06-feedback-loops.md` § Testes). O Qdrant nunca fica no cassette (só Anthropic/Voyage
+ficam), e a coleção é reconstruída do zero a cada execução; a busca aproximada por HNSW não
+garante composição/ordem idêntica do top-k entre duas reconstruções, e com grading + crítico no
+meio, isso já é o bastante pra mudar o corpo exato da chamada do redator e descasar do cassette.
+O teste passa de forma confiável contra a API real (sem `LLM_CASSETTE`).
 
 ## Estrutura
 
