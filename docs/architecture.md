@@ -178,7 +178,10 @@ testes.
 
 ## Status
 
-Desenho fechado; implementação começa pela tarefa 00 (fatia vertical). Ver `docs/tasks/`.
+As 7 tarefas do plano (`00-vertical-slice` a `06-feedback-loops`) estão implementadas e
+mergeadas — ver `docs/tasks/`. `peso_metadado` da fórmula de scoring continua pendência
+explícita (fica fixo em 1; nenhuma tarefa o implementou, por falta de dado que justifique um
+peso). Feedback humano persistido está fora de escopo do plano original.
 
 ## Decisões
 
